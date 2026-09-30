@@ -1,0 +1,7 @@
+// Don't set these from Xcode's Signing & Capabilities tab: it writes them into
+// project.pbxproj, which overrides this file.
+
+DEVELOPMENT_TEAM =
+BUNDLE_ID_PREFIX = devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier)
+
+#include? "Signing.local.xcconfig"

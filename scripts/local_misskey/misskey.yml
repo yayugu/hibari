@@ -1,0 +1,26 @@
+# The URL must not change once the database has data (scripts/local_misskey.py reset).
+
+url: http://localhost:3000/
+port: 3000
+
+db:
+  host: db
+  port: 5432
+  db: misskey
+  user: misskey
+  pass: misskey
+
+dbReplications: false
+
+redis:
+  host: redis
+  port: 6379
+
+fulltextSearch:
+  provider: sqlLike
+
+id: 'aidx'
+
+# Every client (the Simulator, browsers, the scripts) reaches Misskey from the same address
+# through the proxy; don't make them share the per-IP rate limits.
+enableIpRateLimit: false

@@ -1,0 +1,74 @@
+name: hibari-misskey
+
+services:
+  proxy:
+    image: nginx:1-alpine
+    ports:
+      - "127.0.0.1:3000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - internal
+      - external
+    depends_on:
+      - web
+
+  web:
+    image: misskey/misskey:2026.9.1
+    volumes:
+      - ./misskey.yml:/misskey/.config/default.yml:ro
+      - files:/misskey/files
+    networks:
+      - internal
+    depends_on:
+      files:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # A new volume is root's; Misskey runs as the image's `misskey` user.
+  files:
+    image: misskey/misskey:2026.9.1
+    user: root
+    entrypoint: ["chown", "misskey:misskey", "/misskey/files"]
+    volumes:
+      - files:/misskey/files
+    network_mode: none
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis:/data
+    networks:
+      - internal
+    healthcheck:
+      test: "redis-cli ping"
+      interval: 5s
+      retries: 20
+
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: misskey
+      POSTGRES_PASSWORD: misskey
+      POSTGRES_DB: misskey
+    volumes:
+      - db:/var/lib/postgresql
+    networks:
+      - internal
+    healthcheck:
+      test: "pg_isready -U misskey -d misskey"
+      interval: 5s
+      retries: 20
+
+networks:
+  internal:
+    internal: true
+  external:
+
+volumes:
+  db:
+  redis:
+  files:

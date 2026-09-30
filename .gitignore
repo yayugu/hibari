@@ -1,0 +1,10 @@
+**/xcuserdata/
+.DS_Store
+local/
+
+perf/Fixtures.bundle/
+
+build/
+*.xcresult
+
+Config/Signing.local.xcconfig

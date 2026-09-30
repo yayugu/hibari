@@ -1,8 +1,10 @@
-<img src="hibari/Assets.xcassets/AppIcon.appiconset/AppIcon.png" alt="Hibari app icon" width="128">
+<div align="center">
+  <img src="docs/icon.png" alt="Hibari app icon" width="160">
+  <h1>Hibari for Misskey</h1>
+  <p>HibariはiPhoneに特化して開発されたMisskeyクライアントです</p>
+</div>
 
-# Hibari for Misskey
-
-HibariはiPhoneに特化して開発されたMisskeyクライアントです
+<br>
 
 
 ### 大切にしていること

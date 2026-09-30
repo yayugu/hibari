@@ -1,3 +1,5 @@
+<img src="hibari/Assets.xcassets/AppIcon.appiconset/AppIcon.png" alt="Hibari app icon" width="128">
+
 # Hibari for Misskey
 
 HibariはiPhoneに特化して開発されたMisskeyクライアントです

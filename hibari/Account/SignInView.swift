@@ -241,7 +241,7 @@ struct SignInView: View {
                     .foregroundStyle(Color(uiColor: .hibari(.secondaryText)))
                     .padding(.top, 40)
                 serverField
-                Text("アカウントのあるサーバーのドメインを入力します。")
+                Text("アカウントのあるサーバーのドメインを入力")
                     .font(.footnote)
                     .foregroundStyle(Color(uiColor: .hibari(.secondaryText)))
                     .fixedSize(horizontal: false, vertical: true)
@@ -325,17 +325,11 @@ struct SignInView: View {
             .buttonStyle(.plain)
             .disabled(!model.canSignIn)
             .accessibilityIdentifier("signIn.button")
-
-            Text("サーバーの許可の画面が開きます。Safari で Misskey にログイン済みなら、そのアカウントを許可するだけです。")
-                .font(.footnote)
-                .foregroundStyle(Color(uiColor: .hibari(.secondaryText)))
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 16)
         }
     }
 
     private static let termsText = (try? AttributedString(markdown:
-        "[利用規約](\(AppLinks.terms.absoluteString))と[プライバシーポリシー](\(AppLinks.privacy.absoluteString))に同意します。不適切なコンテンツや迷惑行為は容認されません。"))
+        "[利用規約](\(AppLinks.terms.absoluteString))と[プライバシーポリシー](\(AppLinks.privacy.absoluteString))に同意します。"))
         ?? AttributedString("利用規約とプライバシーポリシーに同意します")
 
     private var termsAgreement: some View {

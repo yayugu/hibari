@@ -17,10 +17,8 @@ final class SignInUITests: XCTestCase {
 
     @MainActor
     func testSignInScreenAppearsWithoutAnAccount() {
-        let app = launchSignedOut()
-        let server = app.textFields["signIn.server"]
-        XCTAssertTrue(server.waitForExistence(timeout: 10))
-        XCTAssertEqual(server.value as? String, "misskey.io")
+        let app = launchSignedOut(server: "example.com")
+        XCTAssertTrue(app.textFields["signIn.server"].waitForExistence(timeout: 10))
         // Not before agreeing to the terms.
         XCTAssertFalse(app.buttons["signIn.button"].isEnabled)
         app.buttons["signIn.terms"].tap()

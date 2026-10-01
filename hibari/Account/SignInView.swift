@@ -241,6 +241,11 @@ struct SignInView: View {
                     .foregroundStyle(Color(uiColor: .hibari(.secondaryText)))
                     .padding(.top, 40)
                 serverField
+                Text("アカウントのあるサーバーのドメインを入力します。")
+                    .font(.footnote)
+                    .foregroundStyle(Color(uiColor: .hibari(.secondaryText)))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
 
                 if let message = model.message {
                     Label(message, systemImage: "exclamationmark.circle.fill")
@@ -276,7 +281,7 @@ struct SignInView: View {
     }
 
     private var serverField: some View {
-        TextField("misskey.io", text: $model.server)
+        TextField("example.com", text: $model.server)
             .textContentType(.URL)
             .keyboardType(.URL)
             .textInputAutocapitalization(.never)

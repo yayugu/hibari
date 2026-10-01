@@ -23,7 +23,9 @@ enum AppSettings {
     /// "both": sets up @hibari_mock and @hibari_sub (with @hibari_mock as current)
     static var mockAccounts: String? { defaults.string(forKey: "HibariMockAccounts") }
 
-    static var signInServer: String { defaults.string(forKey: "HibariSignInServer") ?? "misskey.io" }
+    /// The sign-in screen's server field starts empty unless a launch argument fills it
+    /// (UI tests, the local dev server).
+    static var signInServer: String { defaults.string(forKey: "HibariSignInServer") ?? "" }
 
     static var showsPerfHUD: Bool { defaults.bool(forKey: "HibariPerfHUD") }
 

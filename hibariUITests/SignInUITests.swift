@@ -21,6 +21,9 @@ final class SignInUITests: XCTestCase {
         let server = app.textFields["signIn.server"]
         XCTAssertTrue(server.waitForExistence(timeout: 10))
         XCTAssertEqual(server.value as? String, "misskey.io")
+        // Not before agreeing to the terms.
+        XCTAssertFalse(app.buttons["signIn.button"].isEnabled)
+        app.buttons["signIn.terms"].tap()
         XCTAssertTrue(app.buttons["signIn.button"].isEnabled)
     }
 }

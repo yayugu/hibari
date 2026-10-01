@@ -31,6 +31,7 @@ final class AppRouter {
         if AppSettings.signsOutOnLaunch {
             accounts.signOutAll()
             PendingMiAuthStore().session = nil
+            AppSettings.hasAcceptedTerms = false
         }
         if AppSettings.usesTestAccounts, let mode = AppSettings.mockAccounts,
            let serverURL = ServerAddress.url(from: AppSettings.signInServer) {

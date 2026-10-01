@@ -50,6 +50,9 @@ final class SignInModel {
     }
 
     var server = AppSettings.signInServer
+    /// Asked once, before the first sign-in (and again when the terms change).
+    let asksForTerms = !AppSettings.hasAcceptedTerms
+    var acceptsTerms = AppSettings.hasAcceptedTerms
     private(set) var phase = Phase.idle
     var message: String?
     @ObservationIgnored var onSignIn: ((Account, String) throws -> Void)?
@@ -72,7 +75,7 @@ final class SignInModel {
     }
 
     var canSignIn: Bool {
-        phase == .idle && ServerAddress.url(from: server) != nil
+        phase == .idle && acceptsTerms && ServerAddress.url(from: server) != nil
     }
 
     var isWorking: Bool {
@@ -81,6 +84,7 @@ final class SignInModel {
 
     func signIn() {
         guard canSignIn else { return }
+        AppSettings.hasAcceptedTerms = true
         phase = .preparing
         message = nil
         Task {
@@ -296,6 +300,9 @@ struct SignInView: View {
 
     private var signInButtons: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if model.asksForTerms {
+                termsAgreement.padding(.bottom, 20)
+            }
             Button {
                 serverFocused = false
                 model.signIn()
@@ -319,6 +326,35 @@ struct SignInView: View {
                 .foregroundStyle(Color(uiColor: .hibari(.secondaryText)))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 16)
+        }
+    }
+
+    private static let termsText = (try? AttributedString(markdown:
+        "[利用規約](\(AppLinks.terms.absoluteString))と[プライバシーポリシー](\(AppLinks.privacy.absoluteString))に同意します。不適切なコンテンツや迷惑行為は容認されません。"))
+        ?? AttributedString("利用規約とプライバシーポリシーに同意します")
+
+    private var termsAgreement: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Button {
+                model.acceptsTerms.toggle()
+            } label: {
+                Image(systemName: model.acceptsTerms ? "checkmark.square.fill" : "square")
+                    .font(.title3)
+                    .foregroundStyle(Color(uiColor: model.acceptsTerms ? .hibari(.accent) : .hibari(.secondaryText)))
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, -8)
+            .accessibilityLabel("利用規約とプライバシーポリシーに同意する")
+            .accessibilityAddTraits(model.acceptsTerms ? .isSelected : [])
+            .accessibilityIdentifier("signIn.terms")
+
+            Text(Self.termsText)
+                .font(.subheadline)
+                .foregroundStyle(Color(uiColor: .hibari(.primaryText)))
+                .tint(Color(uiColor: .hibari(.accent)))
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

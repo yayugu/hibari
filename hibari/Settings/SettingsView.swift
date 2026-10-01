@@ -48,12 +48,45 @@ struct SettingsView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .listRowBackground(Color.clear)
+            Section("このアプリについて") {
+                LabeledContent("バージョン", value: Self.version)
+                link("利用規約", AppLinks.terms)
+                link("プライバシーポリシー", AppLinks.privacy)
+                link("サポート", AppLinks.support)
+                link("お問い合わせ", AppLinks.contact, detail: AppLinks.contactAddress)
+                link("ソースコード", AppLinks.source, detail: "GitHub")
+                link("ライセンス", AppLinks.license, detail: "MIT")
+            }
         }
         .onChange(of: appearance) {
             NotificationCenter.default.post(name: AppSettings.didChange, object: nil)
         }
         .onChange(of: sensitiveMedia) {
             NotificationCenter.default.post(name: AppSettings.didChange, object: nil)
+        }
+    }
+}
+
+extension SettingsView {
+    private static var version: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "-"
+        let build = info?["CFBundleVersion"] as? String ?? "-"
+        return "\(version) (\(build))"
+    }
+
+    private func link(_ title: String, _ url: URL, detail: String? = nil) -> some View {
+        Link(destination: url) {
+            HStack {
+                Text(title).foregroundStyle(Color(uiColor: .hibari(.primaryText)))
+                Spacer()
+                if let detail {
+                    Text(detail).foregroundStyle(.secondary)
+                }
+                Image(systemName: "arrow.up.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 }

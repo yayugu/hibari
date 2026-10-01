@@ -39,6 +39,19 @@ enum AppSettings {
 
     static let appearanceKey = "HibariAppearance"
 
+    /// The terms (`AppLinks.terms`) the user agreed to on the sign-in screen. Raising it
+    /// asks everyone again.
+    static let termsVersion = 1
+
+    static var hasAcceptedTerms: Bool {
+        get { defaults.integer(forKey: termsKey) >= termsVersion }
+        set { defaults.set(newValue ? termsVersion : 0, forKey: termsKey) }
+    }
+
+    private static var termsKey: String {
+        usesTestAccounts ? "HibariUITestAcceptedTerms" : "HibariAcceptedTerms"
+    }
+
     /// The settings screen's "センシティブなメディアの表示", per account.
     /// `-HibariSensitiveMedia show` sets it for a launch, for every account (the settings
     /// screen cannot change it then).

@@ -8,3 +8,5 @@ build/
 *.xcresult
 
 Config/Signing.local.xcconfig
+
+.cloudflare/

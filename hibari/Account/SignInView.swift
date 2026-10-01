@@ -345,6 +345,11 @@ struct SignInView: View {
             }
             .buttonStyle(.plain)
             .padding(.leading, -8)
+            // Centers the box on the text's first line rather than sitting it on the baseline.
+            .alignmentGuide(.firstTextBaseline) { d in
+                let font = UIFont.preferredFont(forTextStyle: .subheadline)
+                return d[VerticalAlignment.center] + (font.ascender + font.descender) / 2
+            }
             .accessibilityLabel("利用規約とプライバシーポリシーに同意する")
             .accessibilityAddTraits(model.acceptsTerms ? .isSelected : [])
             .accessibilityIdentifier("signIn.terms")

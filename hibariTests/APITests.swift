@@ -85,6 +85,21 @@ struct APITests {
         #expect(down?.isTransient == true && down?.errorDescription == "サーバーでエラーが起きました（502）")
     }
 
+    @Test func atsRejectionExplainsHTTPConnectionLimitations() async throws {
+        let session = StubURLProtocol.session { _, _ in
+            throw URLError(.appTransportSecurityRequiresSecureConnection)
+        }
+        do {
+            _ = try await MisskeyClient(server: URL(string: "http://misskey.example")!, session: session).data("meta")
+            Issue.record("Expected ATS rejection")
+        } catch let error as MisskeyAPIError {
+            #expect(error.errorDescription == "ATSにより接続できませんでした。HTTPのサーバーには接続できない場合があります")
+            #expect(!error.isTransient)
+            #expect(!error.isAuthenticationFailure)
+        }
+        #expect(MisskeyAPIError.transport(URLError(.timedOut)).isTransient)
+    }
+
     @Test func onlyARefusalOfITellsTheTokenIsRefused() async {
         func refuses(_ response: StubURLProtocol.Response?) async -> Bool {
             let urlSession = StubURLProtocol.session { request, body in

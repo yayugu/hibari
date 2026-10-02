@@ -102,7 +102,7 @@ enum MisskeyAPIError: Error, LocalizedError {
 
     var isTransient: Bool {
         switch self {
-        case .transport: true
+        case .transport(let error): error.code != .appTransportSecurityRequiresSecureConnection
         case .server(let status, _): status == 429 || status >= 500
         case .invalidResponse: false
         }
@@ -114,6 +114,8 @@ enum MisskeyAPIError: Error, LocalizedError {
             switch error.code {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
                 "インターネットに接続されていません"
+            case .appTransportSecurityRequiresSecureConnection:
+                "ATSにより接続できませんでした。HTTPのサーバーには接続できない場合があります"
             case .timedOut:
                 "サーバーが応答しませんでした"
             case .cannotFindHost, .dnsLookupFailed:

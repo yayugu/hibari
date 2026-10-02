@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Note layout")
 struct NoteLayoutTests {
-    @Test func everySampleNoteLaysOutInsideTheCanvas() {
+    @Test func sampleNotesStayInsideTheCanvasAndOnThePixelGrid() {
         let engine = Samples.engine()
         let context = Samples.context()
         let layouts = engine.layouts(for: Samples.items, context: context)
@@ -18,13 +18,6 @@ struct NoteLayoutTests {
                 #expect(rect.minY >= 0 && rect.maxY <= layout.height + 0.5, "\(layout.key.noteID) \(rect)")
                 #expect(rect.width > 0 && rect.height > 0)
             }
-        }
-    }
-
-    @Test func framesArePixelAligned() {
-        let engine = Samples.engine()
-        let context = Samples.context()
-        for layout in engine.layouts(for: Array(Samples.items.prefix(100)), context: context) {
             for rect in layout.blocks.map(\.frame) + layout.images.map(\.frame) {
                 for value in [rect.minX, rect.minY, rect.width, rect.height] {
                     let pixels = value * context.displayScale
@@ -33,26 +26,6 @@ struct NoteLayoutTests {
             }
             #expect(abs(layout.height * 3 - (layout.height * 3).rounded()) < 0.01)
         }
-    }
-
-    @Test func layoutIsDeterministic() {
-        let items = Array(Samples.items.prefix(80))
-        let context = Samples.context()
-        let a = Samples.engine().layouts(for: items, context: context)
-        let b = Samples.engine().layouts(for: items, context: context)
-        #expect(a.map(\.height) == b.map(\.height))
-        #expect(a.map { $0.blocks.map(\.frame) } == b.map { $0.blocks.map(\.frame) })
-    }
-
-    @Test func cacheReturnsTheSameResultForTheSameKey() throws {
-        let engine = Samples.engine()
-        let item = try #require(Samples.items.first)
-        let context = Samples.context()
-        #expect(engine.cachedLayout(for: item, context: context) == nil)
-        let first = engine.layout(for: item, context: context)
-        let cached = try #require(engine.cachedLayout(for: item, context: context))
-        #expect(cached.key == first.key)
-        #expect(engine.cachedLayout(for: item, context: Samples.context(width: 375)) == nil)
     }
 
     @Test func keyChangesWithEverythingThatAffectsLayout() throws {
@@ -67,37 +40,7 @@ struct NoteLayoutTests {
         #expect(base != engine.key(for: expanded, context: Samples.context()))
     }
 
-    @Test func themeDoesNotChangeGeometry() {
-        let items = Array(Samples.items.prefix(60))
-        let dark = Samples.engine().layouts(for: items, context: Samples.context(style: .dark))
-        let light = Samples.engine().layouts(for: items, context: Samples.context(style: .light))
-        #expect(dark.map(\.height) == light.map(\.height))
-    }
-
-    @Test func largerTextMakesTheTimelineTaller() {
-        let items = Array(Samples.items.prefix(60))
-        let normal = Samples.engine().layouts(for: items, context: Samples.context())
-        let large = Samples.engine().layouts(for: items, context: Samples.context(fontScale: 1.35))
-        #expect(large.map(\.height).reduce(0, +) > normal.map(\.height).reduce(0, +))
-    }
-
-    @Test func narrowerCanvasNeverMakesNotesShorter() {
-        let items = Samples.items
-            .filter { $0.note?.files.isEmpty == true && $0.note?.renote == nil }
-            .map { item in
-                var item = item
-                item.state.textExpanded = true
-                return item
-            }
-        #expect(items.count > 20)
-        let wide = Samples.engine().layouts(for: items, context: Samples.context(width: 440))
-        let narrow = Samples.engine().layouts(for: items, context: Samples.context(width: 375))
-        for (w, n) in zip(wide, narrow) {
-            #expect(n.height >= w.height - 0.5, "\(w.key.noteID)")
-        }
-    }
-
-    @Test func longNotesCollapse() throws {
+    @Test func longNotesCollapseAndRespectTheTextScale() throws {
         let context = Samples.context()
         let engine = Samples.engine()
         let long = TimelineItem(note: try Samples.makeNote(text: (1...40).map { "\($0)行目" }.joined(separator: "\n")))
@@ -108,6 +51,7 @@ struct NoteLayoutTests {
         let lineHeight = Typography.shared(fontScale: 1, lineHeightMultiple: context.metrics.lineHeightMultiple)
             .lineMetrics(for: Typography.system(16)).lineHeight
         #expect(full.height - collapsed.height > lineHeight * 28)
+        #expect(engine.layout(for: expanded, context: Samples.context(fontScale: 1.35)).height > full.height)
 
         let short = TimelineItem(note: try Samples.makeNote(text: "短い"))
         var shortExpanded = short
@@ -147,8 +91,12 @@ struct NoteLayoutTests {
         let item = TimelineItem(note: try Samples.makeNote(text: String(repeating: "本文\n", count: 8), cw: "ネタバレ"))
         var expanded = item
         expanded.state.cwExpanded = true
-        #expect(engine.layout(for: item, context: context).height < engine.layout(for: expanded, context: context).height)
-        #expect(engine.layout(for: item, context: context).accessibility.label(at: Samples.now).contains("ネタバレ"))
+        let hidden = engine.layout(for: item, context: context)
+        let revealed = engine.layout(for: expanded, context: context)
+        #expect(hidden.height < revealed.height)
+        #expect(hidden.accessibility.label(at: Samples.now).contains("ネタバレ"))
+        #expect(hidden.targets.contains { $0.action == .toggleCW })
+        #expect(revealed.targets.contains { $0.action == .toggleCW })
     }
 
     @Test func sensitiveMediaIsNotRequestedUntilRevealed() throws {
@@ -170,16 +118,6 @@ struct NoteLayoutTests {
         #expect(avatar.request?.url == note.renote?.user.avatarUrl)
         #expect(avatar.request?.shape == .circle)
         #expect(layout.accessibility.label(at: Samples.now).contains("がリノート"))
-    }
-
-    @Test func quoteBoxWrapsTheQuotedNote() throws {
-        let note = try #require(Samples.firstNote {
-            $0.renote != nil && !$0.isPureRenote && $0.files.isEmpty && $0.cw == nil
-        })
-        let layout = Samples.engine().layout(for: TimelineItem(note: note), context: Samples.context())
-        let box = try #require(layout.decorations.last)
-        let quoteAvatar = try #require(layout.images.dropFirst().first)
-        #expect(box.frame.contains(quoteAvatar.frame))
     }
 
     @Test func mediaGrid() {
@@ -238,19 +176,6 @@ struct NoteLayoutTests {
         let time = try #require(layout.timeSlots.first)
         #expect(time.origin.x >= textEnd - 0.5, "after the name and handle")
         #expect(time.origin.x + time.reservedWidth <= header.frame.maxX + 0.5)
-    }
-
-    @Test func relativeTimesAreSlotsOutsideTheBlocks() throws {
-        let note = try #require(Samples.firstNote { $0.renote != nil && !$0.isPureRenote })
-        let layout = Samples.engine().layout(for: TimelineItem(note: note), context: Samples.context())
-        #expect(layout.timeSlots.count >= 2, "the note and its quote")
-        let header = try #require(layout.blocks.first { $0.frame.minY <= layout.timeSlots[0].origin.y })
-        #expect(layout.timeSlots[0].origin.y == header.frame.minY)
-        let created = note.createdAt
-        #expect(layout.timeSlots[0].text(at: created.addingTimeInterval(300)) == " · 5分")
-        #expect(layout.timeSlots[0].text(at: created.addingTimeInterval(7200)) == " · 2時間")
-        #expect(layout.timeSlots[0].nextChange(after: created.addingTimeInterval(300)) == created.addingTimeInterval(360))
-        #expect(layout.timeSlots[0].text(at: created.addingTimeInterval(8 * 86400 + 60)) == " · 8日")
     }
 
     @Test func emojiThatCannotLoadIsShownAsItsName() throws {

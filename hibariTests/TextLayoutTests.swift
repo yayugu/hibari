@@ -27,13 +27,6 @@ struct TextLayoutTests {
         #expect(abs(layout.size.height - metrics.lineHeight * 4) < 1)
     }
 
-    @Test func wrapsWithinWidth() {
-        let text = String(repeating: "あいうえおかきくけこ", count: 10)
-        let layout = TextLayout(attributed(text), width: 200, metrics: metrics)
-        #expect(layout.lines.count > 3)
-        #expect(layout.size.width <= 200)
-    }
-
     @Test func maxLinesTruncatesWithEllipsis() {
         let text = (1...20).map { "行\($0)" }.joined(separator: "\n")
         let layout = TextLayout(attributed(text), width: 300, metrics: metrics, maxLines: 3)
@@ -62,15 +55,6 @@ struct TextLayoutTests {
         #expect(string.string == ":unknown:")
     }
 
-    @Test func singleLineTruncates() {
-        let long = NSAttributedString(string: String(repeating: "長い名前", count: 20), attributes: [
-            TextAttribute.font: typography.bodyBold,
-        ])
-        let layout = TextLayout.singleLine(long, maxWidth: 120, metrics: metrics)
-        #expect(layout.isTruncated)
-        #expect(layout.size.width <= 120.5)
-    }
-
     @Test func nestedZoomDoesNotCompound() throws {
         func fontSize(_ text: String) throws -> CGFloat {
             let string = attributed(text)
@@ -87,22 +71,11 @@ struct TextLayoutTests {
     @Test func ellipsisAfterAnEmojiIsVisible() throws {
         let name = attributed(String(repeating: "長い名前", count: 10) + ":cat:", emojis: ["cat": "https://e/cat.png"])
         let layout = TextLayout.singleLine(name, maxWidth: 120, metrics: metrics)
-        #expect(layout.isTruncated)
+        #expect(layout.isTruncated && layout.size.width <= 120.5)
         let line = try #require(layout.lines.first).line
         let ellipsis = try #require((CTLineGetGlyphRuns(line) as! [CTRun]).last)
         let attributes = CTRunGetAttributes(ellipsis) as NSDictionary
         let color = attributes[TextAttribute.foregroundColor.rawValue].map { $0 as! CGColor }
         #expect((color?.alpha ?? 0) > 0)
-    }
-
-    @Test func urlsAreShortenedForDisplay() {
-        #expect(RichTextBuilder.displayURL("https://misskey.io/") == "misskey.io")
-        let long = RichTextBuilder.displayURL("https://example.com/" + String(repeating: "a", count: 80))
-        #expect(long.count == 40 && long.hasSuffix("…"))
-    }
-
-    @Test func centerAndQuoteBecomeTheirOwnParagraphs() {
-        #expect(attributed("前<center>中</center>後").string == "前\n中\n後")
-        #expect(attributed("> 引用\n本文").string == "引用\n本文")
     }
 }

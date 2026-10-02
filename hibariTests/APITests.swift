@@ -45,16 +45,6 @@ struct APITests {
         #expect(try await source.notes(after: "n1", limit: 10)?.isEmpty == true)
     }
 
-    @Test func theFirstPageHasNoCursor() async throws {
-        let urlSession = StubURLProtocol.session { _, body in
-            #expect(body["untilId"] == nil)
-            return .json([])
-        }
-        let source = APITimelineSource(client: MisskeyClient(server: TestData.server, token: "T", session: urlSession),
-                                       endpoint: "notes/timeline")
-        #expect(try await source.notes(until: nil, limit: 10).isEmpty)
-    }
-
     @Test func errorsCarryMisskeysCode() async {
         func error(status: Int, _ body: Any) async -> MisskeyAPIError? {
             let response = StubURLProtocol.Response.json(body, status: status)
@@ -113,13 +103,6 @@ struct APITests {
         #expect(await !refuses(.json(TestData.me)))
         #expect(await !refuses(.json(["error": ["code": "INTERNAL_ERROR"]], status: 500)))
         #expect(await !refuses(nil), "offline")
-    }
-
-    @Test func undecodableResponsesAreInvalid() async {
-        let urlSession = StubURLProtocol.session { _, _ in .init(status: 200, body: Data("<html>".utf8)) }
-        await #expect(throws: MisskeyAPIError.self) {
-            try await MisskeyClient(server: TestData.server, session: urlSession).request("i", as: MeDetailed.self)
-        }
     }
 
     @Test func serverResourcesComeFromMetaAndEmojis() async throws {

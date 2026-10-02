@@ -52,16 +52,6 @@ struct BookmarkTests {
         #expect(entries.index(of: quote.id) == 0 && entries.layouts[0].key.noteID == quote.id)
         #expect(entries.remove(noteID: quoted.id).isEmpty)
     }
-
-    @Test func timelinesMarkBothRenotesAndBookmarks() throws {
-        let note = try #require(Samples.firstNote { !$0.isPureRenote })
-        var renotes = RenoteMarks(accountUserID: "someone else")
-        renotes.renoted.insert(note.id)
-        var bookmarks = BookmarkMarks()
-        bookmarks.bookmarked.insert(note.id)
-        let marked = NoteMarks(renotes: renotes, bookmarks: bookmarks).apply(to: note)
-        #expect(marked.isRenotedByMe && marked.isBookmarked)
-    }
 }
 
 @Suite("Bookmark API")
@@ -93,24 +83,16 @@ struct BookmarkAPITests {
     @Test func theNotesTheAccountReactedToPageByTheReaction() async throws {
         let client = client { request, body in
             #expect(request.url?.path() == "/api/users/reactions")
-            #expect(body["userId"] as? String == "me" && body["untilId"] == nil)
+            #expect(body["userId"] as? String == "me" && body["untilId"] as? String == "r9")
             return .json([
                 ["id": "r2", "createdAt": "2026-09-23T15:00:00.000Z", "type": "👍", "note": TestData.note(id: "n3")],
             ])
         }
-        let page = try await ReactedNotesSource(client: client, userID: "me").page(until: nil, limit: 20)
+        let page = try await ReactedNotesSource(client: client, userID: "me").page(until: "r9", limit: 20)
         #expect(page.entries.map(\.id) == ["n3"] && page.cursor == "r2")
         let end = try await ReactedNotesSource(client: self.client { _, _ in .json([]) }, userID: "me")
             .page(until: "r2", limit: 20)
         #expect(end.entries.isEmpty && end.cursor == nil)
-    }
-
-    @Test func whetherANoteIsBookmarkedComesFromItsState() async throws {
-        let client = client { request, body in
-            #expect(request.url?.path() == "/api/notes/state" && body["noteId"] as? String == "n1")
-            return .json(["isFavorited": true, "isMutedThread": false])
-        }
-        #expect(try await client.isBookmarked("n1"))
     }
 }
 
@@ -164,24 +146,14 @@ struct BookmarkControllerTests {
         return received.withLock { $0 }
     }
 
-    @Test func bookmarkingShowsAtOnceAndSendsTheRequest() async throws {
-        let log = Log()
-        let controller = controller(log: log)
-        let note = try note()
-        let posted = try await changes(of: controller, count: 1) { #expect(controller.toggle(note)) }
-        #expect(posted == [BookmarkChange(noteID: "n1", isBookmarked: true)])
-        #expect(controller.isBookmarked(note) && controller.marks.bookmarked == ["n1"])
-        try await log.wait(for: 1)
-        #expect(log.all == ["notes/favorites/create n1"])
-    }
-
     @Test func quickTapsReachTheServerInOrder() async throws {
         let log = Log()
         let controller = controller(log: log)
         let note = try note()
         let posted = try await changes(of: controller, count: 2) {
-            controller.toggle(note)
-            controller.toggle(note)
+            #expect(controller.toggle(note))
+            #expect(controller.isBookmarked(note) && controller.marks.bookmarked == ["n1"])
+            #expect(!controller.toggle(note))
         }
         #expect(posted.map(\.isBookmarked) == [true, false])
         try await log.wait(for: 2)

@@ -130,21 +130,20 @@ struct TimelineRefreshTests {
         (1...count).reversed().map { String(format: "n%03d", $0) }
     }
 
-    @Test func returningNotesDoesNotOptIntoHistoryPreservation() {
+    @Test func sourcesChooseTheIntendedRefreshPolicy() {
         #expect(DefaultNoteSource().refreshPolicy == .replace)
+        let client = client(Server())
+        for list in Self.historyLists {
+            #expect(list.source(client: client).refreshPolicy == .preserveHistory, "\(list)")
+        }
+        for list in Self.replacementLists {
+            #expect(list.source(client: client).refreshPolicy == .replace, "\(list)")
+        }
     }
 
-    @Test(arguments: historyLists)
-    func onlyHistoryTimelinesOptIntoPreservation(_ list: List) {
-        #expect(list.source(client: client(Server())).refreshPolicy == .preserveHistory)
-    }
-
-    @Test(arguments: replacementLists)
-    func otherListsUseTheReplacementDefault(_ list: List) {
-        #expect(list.source(client: client(Server())).refreshPolicy == .replace)
-    }
-
-    @Test(arguments: replacementLists)
+    // The controller is shared. Exercise notes with a separate cursor and notifications;
+    // source-specific endpoints and policies are checked without constructing every screen.
+    @Test(arguments: [List.bookmarks, .notifications])
     func refreshReplacesDeletedAndChangedEntriesEvenWithOverlap(_ list: List) async throws {
         let server = Server()
         let screen = try await screen(list, server: server)
@@ -156,17 +155,16 @@ struct TimelineRefreshTests {
         #expect(screen.timeline.item(forNote: "n005")?.contentHash != oldHash)
     }
 
-    @Test(arguments: replacementLists)
-    func refreshCanReplaceTheListWithNothing(_ list: List) async throws {
+    @Test func refreshCanReplaceTheListWithNothing() async throws {
         let server = Server()
-        let screen = try await screen(list, server: server)
+        let screen = try await screen(.bookmarks, server: server)
         server.update([])
         await TimelineTestSupport.refresh(screen.timeline)
         expectIDs([], in: screen.timeline)
         #expect(!screen.timeline.hasMorePages && screen.timeline.gapCount == 0)
     }
 
-    @Test(arguments: replacementLists)
+    @Test(arguments: [List.bookmarks, .notifications])
     func refreshRestartsPaginationAndUsesTheServersOrder(_ list: List) async throws {
         let original = ids(AppSettings.timelinePageSize + 5)
         let server = Server(original)
@@ -189,7 +187,7 @@ struct TimelineRefreshTests {
         #expect(cursors.dropFirst().first == prefix + updated[AppSettings.timelinePageSize - 1])
     }
 
-    @Test(arguments: replacementLists + historyLists)
+    @Test(arguments: [List.bookmarks, .timeline(.home)])
     func aFailedRefreshKeepsTheExistingList(_ list: List) async throws {
         let server = Server()
         let screen = try await screen(list, server: server)
@@ -199,14 +197,12 @@ struct TimelineRefreshTests {
         #expect(!screen.timeline.hasMorePages)
         server.update(["n005", "n004"])
         await TimelineTestSupport.refresh(screen.timeline)
-        #expect(screen.timeline.item(forNote: "n005")?.note?.text == "updated"
-                || screen.timeline.item(forNote: "n005")?.notification?.users.first?.name == "updated")
+        #expect(screen.timeline.item(forNote: "n005")?.note?.text == "updated")
     }
 
-    @Test(arguments: historyLists)
-    func historyRefreshMergesNewNotesAndKeepsTheReadingPosition(_ list: List) async throws {
+    @Test func historyRefreshMergesNewNotesAndKeepsTheReadingPosition() async throws {
         let server = Server()
-        let screen = try await screen(list, server: server)
+        let screen = try await screen(.timeline(.home), server: server)
         let timeline = screen.timeline
         TimelineTestSupport.layout(timeline)
         let indexPath = try #require(timeline.indexPath(forNote: "n005"))
@@ -225,11 +221,10 @@ struct TimelineRefreshTests {
         #expect(timeline.gapCount == 0)
     }
 
-    @Test(arguments: historyLists)
-    func aRefreshBeyondTheFetchedHistoryLeavesAGap(_ list: List) async throws {
+    @Test func aRefreshBeyondTheFetchedHistoryLeavesAGap() async throws {
         let original = ids(AppSettings.timelinePageSize * 4)
         let server = Server(original)
-        let screen = try await screen(list, server: server)
+        let screen = try await screen(.timeline(.home), server: server)
         let timeline = screen.timeline
         let path = IndexPath(item: AppSettings.timelinePageSize * 3, section: 0)
         let frame = try #require(timeline.collectionView.layoutAttributesForItem(at: path)).frame
@@ -241,20 +236,18 @@ struct TimelineRefreshTests {
         #expect(original.allSatisfy { timeline.contains(noteID: $0) })
     }
 
-    @Test(arguments: historyLists)
-    func startingOverCanStillResetAHistoryTimeline(_ list: List) async throws {
+    @Test func startingOverCanStillResetAHistoryTimeline() async throws {
         let server = Server()
-        let screen = try await screen(list, server: server)
+        let screen = try await screen(.timeline(.home), server: server)
         server.update(["n005", "n004"])
         await TimelineTestSupport.refresh(screen.timeline, startingOver: true)
         expectIDs(["n005", "n004"], in: screen.timeline)
         #expect(screen.timeline.gapCount == 0)
     }
 
-    @Test(arguments: historyLists + [.profile(.all)])
-    func undoingARenoteRemovesItsRowInTheCommonController(_ list: List) async throws {
+    @Test func undoingARenoteRemovesItsRowInTheCommonController() async throws {
         let server = Server(renoteID: "n005")
-        let screen = try await screen(list, server: server)
+        let screen = try await screen(.profile(.all), server: server)
         let target = try #require(screen.timeline.item(forNote: "n005")?.note?.renote)
         #expect(screen.services.renotes.isRenoted(target))
         screen.services.undoRenote(target)

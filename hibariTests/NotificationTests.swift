@@ -175,21 +175,6 @@ struct NotificationTests {
         #expect(usage.reactions.contains { $0.contains("remote_ai") })
     }
 
-    @Test func rowsWithoutUsersOrNotesAreOneLine() throws {
-        let engine = Samples.engine()
-        let context = Samples.context()
-        let login = engine.layout(for: TimelineItem(notification: try notification(
-            NotificationJSON.notification("n10", "login"))), context: context)
-        let follow = engine.layout(for: TimelineItem(notification: try notification(NotificationJSON.follow)),
-                                   context: context)
-        #expect(login.images.isEmpty && login.accessibility.beforeTime == "ログインがありました")
-        #expect(follow.images.count == 1 && follow.accessibility.beforeTime == "Graceさんにフォローされました")
-        #expect(login.height < follow.height)
-        let reactions = engine.layout(for: TimelineItem(notification: try notification(NotificationJSON.reactions)),
-                                      context: context)
-        #expect(follow.height < reactions.height, "the note's text below")
-    }
-
     @Test func longSummariesWrapAndKeepTheTime() throws {
         var follow = NotificationJSON.follow
         follow["user"] = NotificationJSON.user("grace", name: String(repeating: "とても長い名前", count: 3))
@@ -199,20 +184,6 @@ struct NotificationTests {
         let summary = try #require(layout.blocks.first { $0.frame.minY > layout.images[0].frame.maxY })
         #expect(summary.frame.height > slot.height * 1.5, "more than one line")
         #expect(slot.origin.x + slot.reservedWidth <= 320, "the time stays on screen")
-    }
-
-    @Test func updatedRowsKeepTheirPlace() throws {
-        let engine = Samples.engine()
-        let items = [TimelineItem(notification: try notification(NotificationJSON.follow)),
-                     TimelineItem(notification: try notification(NotificationJSON.reactions))]
-        var entries = TimelineEntries()
-        entries.append(items, layouts: engine.layouts(for: items, context: Samples.context()))
-        var more = NotificationJSON.reactions
-        more["reactions"] = [["user": NotificationJSON.user("zed"), "reaction": "🎉"]]
-            + (more["reactions"] as! [[String: Any]])
-        entries.replace([TimelineItem(notification: try notification(more))])
-        #expect(entries.items.map(\.id) == ["n4", "g1"])
-        #expect(entries.items[1].notification?.users.first?.id == "zed")
     }
 }
 

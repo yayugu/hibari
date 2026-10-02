@@ -27,12 +27,13 @@ struct ModelTests {
 
     @Test func malformedOptionalFieldsFallBackToDefaults() throws {
         let notes = try decode([
-            note(#""text":"x","reactions":[],"reactionEmojis":[],"renoteCount":"many","poll":{"choices":1}"#),
+            note(#""text":"x","reactions":[],"reactionEmojis":[],"renoteCount":"many","poll":{"choices":1},"files":[{"id":"f1","type":"image/png","url":"U"},{"type":"image/png"}]"#),
         ])
         let decoded = try #require(notes.first)
         #expect(decoded.reactions.isEmpty && decoded.reactionEmojis.isEmpty)
         #expect(decoded.renoteCount == 0)
         #expect(decoded.poll == nil)
+        #expect(decoded.files.map(\.id) == ["f1"])
     }
 
     @Test func serverCountsSaturateInsteadOfOverflowing() throws {
@@ -63,13 +64,6 @@ struct ModelTests {
         #expect(poll([0, -1]).voteRatios == [0, 0])
         #expect(poll([1, 3]).voteRatios == [0.25, 0.75])
         #expect(poll([]).voteRatios.isEmpty)
-    }
-
-    @Test func aBrokenFileIsDroppedFromItsNote() throws {
-        let notes = try decode([
-            note(#""files":[{"id":"f1","type":"image/png","url":"U"},{"type":"image/png"}]"#),
-        ])
-        #expect(notes.first?.files.map(\.id) == ["f1"])
     }
 
     @Test func renoteKinds() throws {

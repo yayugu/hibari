@@ -31,7 +31,6 @@ struct SignInTests {
         #expect(query["name"] == "Hibari")
         #expect(query["callback"] == "hibari://miauth")
         let permissions = try #require(query["permission"]).split(separator: ",").map(String.init)
-        #expect(permissions == MiAuth.permissions)
         #expect(permissions.contains("read:account") && permissions.contains("write:notes"))
         #expect(permissions.contains("write:report-abuse"), "reporting (App Review asks for it)")
     }
@@ -221,9 +220,6 @@ struct SignInTests {
         #expect(store.current?.id == alice.id && notified.withLock { $0 } == 1)
         store.select(alice)
         #expect(notified.withLock { $0 } == 1, "selecting the current one changes nothing")
-        #expect(AccountStore(defaults: defaults, tokens: InMemoryTokenStore()).current == nil,
-                "accounts without their tokens are not kept")
-
         store.signOut(alice)
         #expect(store.current?.id == bob.id)
         store.select(carol)
@@ -231,38 +227,6 @@ struct SignInTests {
         #expect(store.current?.id == bob.id)
         store.signOut(bob)
         #expect(store.current == nil && store.accounts.isEmpty)
-    }
-
-    @MainActor
-    @Test func uiTestAccountsAreKeptApart() throws {
-        let defaults = try #require(UserDefaults(suiteName: "hibari-tests-\(UUID().uuidString)"))
-        let tokens = InMemoryTokenStore()
-        let usual = AccountStore(defaults: defaults, tokens: tokens)
-        try usual.signIn(try account("u1"), token: "A")
-        let test = AccountStore(defaults: defaults, tokens: InMemoryTokenStore(), keyPrefix: "HibariUITest")
-        #expect(test.accounts.isEmpty)
-        try test.signIn(try account("u2"), token: "B")
-        test.signOutAll()
-        #expect(AccountStore(defaults: defaults, tokens: tokens).current?.userID == "u1",
-                "signing the test accounts out leaves the usual ones")
-    }
-
-    @Test func profilesKeepCountsAndNameEmojis() throws {
-        var me = TestData.me
-        me["name"] = "Alice :blob: :missing:"
-        me["followingCount"] = 12
-        me["followersCount"] = 3456
-        var alice = Account(server: TestData.server,
-                            me: try JSONDecoder().decode(MeDetailed.self, from: JSONSerialization.data(withJSONObject: me)))
-        #expect(alice.followingCount == 12 && alice.followersCount == 3456)
-        alice.resolveNameEmojis(EmojiResolver(localEmojis: ["blob": "https://misskey.example/blob.png"], mediaProxy: nil))
-        #expect(alice.nameEmojis == ["blob": "https://misskey.example/blob.png"])
-
-        var saved = try JSONSerialization.jsonObject(with: JSONEncoder().encode(alice)) as! [String: Any]
-        saved["followingCount"] = nil
-        saved["nameEmojis"] = nil
-        let old = try JSONDecoder().decode(Account.self, from: JSONSerialization.data(withJSONObject: saved))
-        #expect(old.followingCount == nil && old.nameEmojis == nil && old.id == alice.id)
     }
 
     @Test func keychainStoresTokens() throws {

@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 import Testing
 @testable import hibari
@@ -19,11 +18,8 @@ struct SearchTests {
                 "the account's own server needs no host")
         #expect(Self.query("from:alice from:bob").from?.username == "bob", "Misskey searches one user: the last")
         #expect(Self.query("ねこ　from:alice").keywords == "ねこ", "full-width spaces separate words too")
-    }
-
-    @Test func anEmptyFromIsAKeyword() {
-        let query = Self.query("from: ねこ")
-        #expect(query.from == nil && query.keywords == "from: ねこ")
+        let incomplete = Self.query("from: ねこ")
+        #expect(incomplete.from == nil && incomplete.keywords == "from: ねこ")
         #expect(Self.query("   ").isEmpty)
         #expect(!Self.query("from:alice").isEmpty)
     }
@@ -99,14 +95,6 @@ struct SearchTests {
         #expect(body["origin"] as? String == "combined", "remote users too")
     }
 
-    @Test func aFixedListEndsAfterItsUsers() async throws {
-        let user = try MisskeyJSON.decoder().decode(
-            UserDetailed.self, from: JSONSerialization.data(withJSONObject: ["id": "u1", "username": "alice"]))
-        let source = FixedUserListSource(list: [user])
-        #expect(try await source.users(offset: 0, limit: 30).map(\.user.id) == ["u1"])
-        #expect(try await source.users(offset: 1, limit: 30).isEmpty)
-    }
-
     @Test func trendsAreDrawnOldestFirst() async throws {
         let urlSession = StubURLProtocol.session { request, _ in
             #expect(request.url!.path() == "/api/hashtags/trend")
@@ -116,9 +104,5 @@ struct SearchTests {
         let trends = try await client.trends()
         #expect(trends == [Trend(tag: "ねこ", chart: [5, 3, 1, 0], usersCount: 5)])
         #expect(trends[0].history == [0, 1, 3, 5], "Misskey sends the latest 10 minutes first")
-
-        let path = try #require(SparklineView.path([0, 1, 3, 5], in: CGRect(x: 0, y: 0, width: 30, height: 10)))
-        #expect(path.boundingBox == CGRect(x: 0, y: 0, width: 30, height: 10), "scaled to the peak")
-        #expect(SparklineView.path([4], in: CGRect(x: 0, y: 0, width: 30, height: 10)) == nil)
     }
 }

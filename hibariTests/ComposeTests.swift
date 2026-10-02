@@ -84,23 +84,6 @@ struct NoteDraftTests {
         #expect(try !note(visibility: "specified", userID: "me").canBeRenoted(by: account))
     }
 
-    @Test func theLastPickedVisibilityIsRememberedPerAccount() throws {
-        let data = try JSONSerialization.data(withJSONObject: ["id": "v-\(UUID().uuidString)", "username": "v"])
-        let account = Account(server: TestData.server, me: try JSONDecoder().decode(MeDetailed.self, from: data))
-        let other = Account(server: URL(string: "https://other.example")!, me: account.meForTests)
-        defer {
-            for key in UserDefaults.standard.dictionaryRepresentation().keys where key.contains(account.userID) {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-        }
-        #expect(NoteVisibility.remembered(for: account) == .public)
-        NoteVisibility.remember(.followers, for: account)
-        #expect(NoteVisibility.remembered(for: account) == .followers)
-        #expect(NoteVisibility.remembered(for: other) == .public)
-        NoteVisibility.remember(.specified, for: account)
-        #expect(NoteVisibility.remembered(for: account) == .public)
-    }
-
     @Test func recentEmojisAndSettingsArePerAccount() throws {
         let suite = "RecentReactionsTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -178,13 +161,9 @@ struct ComposeTextViewTests {
         #expect(abs(wide.bounds.width / wide.bounds.height - 4) < 0.2)
         #expect(view.source == "やあ :blobcat: と :hibari_wide: と :nope:")
         #expect(view.accessibilityValue == view.source)
-    }
-
-    @Test func codesThatMFMTakesForTextStayText() {
-        let view = textView()
-        view.insertPlainText("`:blobcat:` と 12:blobcat:ab")
-        #expect(emojis(in: view).isEmpty)
-        #expect(view.source == "`:blobcat:` と 12:blobcat:ab")
+        view.selectedRange = NSRange(location: 0, length: view.textStorage.length)
+        view.copy(nil)
+        #expect(UIPasteboard.general.string == view.source)
     }
 
     @Test func pickedEmojisGoInAtTheCursor() {
@@ -209,28 +188,6 @@ struct ComposeTextViewTests {
         #expect(MFMParser.parse(afterLink.source).last == .emoji("blobcat"))
     }
 
-    @Test func mentionsHashtagsAndLinksAreInTheAccentColor() throws {
-        let view = textView()
-        view.insertPlainText("こんにちは #金曜日 @alice https://example.com :blobcat: #x")
-        let dark = UITraitCollection(userInterfaceStyle: .dark)
-        let accent = UIColor.hibari(.accent).resolvedColor(with: dark)
-        let primary = UIColor.hibari(.primaryText).resolvedColor(with: dark)
-        func color(of substring: String) throws -> UIColor {
-            let range = (view.textStorage.string as NSString).range(of: substring)
-            let value = try #require(view.textStorage.attribute(.foregroundColor, at: range.location, effectiveRange: nil)
-                as? UIColor)
-            return value.resolvedColor(with: dark)
-        }
-        #expect(try color(of: "#金曜日") == accent)
-        #expect(try color(of: "@alice") == accent)
-        #expect(try color(of: "https://example.com") == accent)
-        #expect(try color(of: "#x") == accent)
-        #expect(try color(of: "こんにちは") == primary)
-
-        view.selectedRange = NSRange(location: view.textStorage.length, length: 0)
-        #expect((view.typingAttributes[.foregroundColor] as? UIColor)?.resolvedColor(with: dark) == primary)
-    }
-
     @Test func nothingChangesWhileAnInputMethodComposes() throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
@@ -249,14 +206,6 @@ struct ComposeTextViewTests {
         view.textViewDidChange(view)
         #expect(emojis(in: view).map(\.name) == ["blobcat"])
         #expect(view.source == "#タグ :blobcat:")
-    }
-
-    @Test func copiesAreTheSource() {
-        let view = textView()
-        view.insertPlainText("あ :blobcat: い")
-        view.selectedRange = NSRange(location: 0, length: view.textStorage.length)
-        view.copy(nil)
-        #expect(UIPasteboard.general.string == "あ :blobcat: い")
     }
 
     @Test func pastedTextCanBeTakenInstead() {

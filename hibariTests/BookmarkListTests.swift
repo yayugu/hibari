@@ -62,29 +62,19 @@ struct BookmarkListTests {
         try #require(ready())
     }
 
-    @Test(arguments: ["n1", "n2"])
-    func takingOffABookmarkRemovesItsRowAndRefreshDoesNotBringItBack(_ noteID: String) async throws {
+    @Test func removingBookmarksUpdatesTheListThroughItsLastRow() async throws {
         let server = Server()
         let screen = try await screen(server)
-        let note = try #require(screen.timeline.item(forNote: noteID)?.note)
-        screen.services.bookmarks.toggle(note)
-        #expect(!screen.timeline.contains(noteID: noteID))
-        #expect(screen.timeline.noteCount == 1)
-        try await wait { !server.ids.withLock { $0.contains(noteID) } }
-        await TimelineTestSupport.refresh(screen.timeline)
-        #expect(!screen.timeline.contains(noteID: noteID) && screen.timeline.noteCount == 1)
-        #expect(screen.timeline.collectionView.numberOfItems(inSection: 0) == 1)
-    }
-
-    @Test func removingTheLastBookmarkLeavesAnEmptyList() async throws {
-        let server = Server(["n1"])
-        let screen = try await screen(server)
-        screen.services.bookmarks.toggle(try #require(screen.timeline.item(forNote: "n1")?.note))
-        #expect(screen.timeline.noteCount == 0)
-        try await wait { server.ids.withLock { $0.isEmpty } }
-        await TimelineTestSupport.refresh(screen.timeline)
-        #expect(screen.timeline.noteCount == 0 && !screen.timeline.hasMorePages)
-        #expect(screen.timeline.collectionView.numberOfItems(inSection: 0) == 0)
+        for (noteID, remaining) in [("n1", 1), ("n2", 0)] {
+            let note = try #require(screen.timeline.item(forNote: noteID)?.note)
+            screen.services.bookmarks.toggle(note)
+            #expect(!screen.timeline.contains(noteID: noteID) && screen.timeline.noteCount == remaining)
+            try await wait { !server.ids.withLock { $0.contains(noteID) } }
+            await TimelineTestSupport.refresh(screen.timeline)
+            #expect(!screen.timeline.contains(noteID: noteID) && screen.timeline.noteCount == remaining)
+            #expect(screen.timeline.collectionView.numberOfItems(inSection: 0) == remaining)
+        }
+        #expect(!screen.timeline.hasMorePages)
     }
 
     @Test func aFailedDeletionRestoresTheBookmarkRow() async throws {

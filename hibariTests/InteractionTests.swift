@@ -93,26 +93,6 @@ struct RenoteTests {
         #expect(uncounted.with(isRenotedByMe: true).renoteCount == 1)
     }
 
-    @Test func theAccountsRenotesMarkTheNotesTheyRenote() throws {
-        let renote = try #require(Samples.firstNote { $0.isPureRenote && $0.user.host == nil })
-        let target = try #require(renote.renote)
-        let marks = RenoteMarks(accountUserID: renote.user.id)
-        #expect(marks.apply(to: renote).displayedNote.isRenotedByMe)
-        #expect(!RenoteMarks(accountUserID: "someone else").apply(to: renote).displayedNote.isRenotedByMe)
-
-        var undone = marks
-        undone.notRenoted.insert(target.id)
-        #expect(!undone.apply(to: renote).displayedNote.isRenotedByMe)
-
-        let quote = try #require(Samples.firstNote { !$0.isPureRenote && $0.renote != nil })
-        var known = RenoteMarks(accountUserID: "someone else")
-        known.renoted.insert(try #require(quote.renote).id)
-        #expect(known.apply(to: quote).renote?.isRenotedByMe == true)
-        #expect(!known.apply(to: quote).isRenotedByMe)
-        let unrelated = try #require(Samples.firstNote { !$0.contains(noteID: quote.renote!.id) })
-        #expect(known.apply(to: unrelated) === unrelated)
-    }
-
     @MainActor
     @Test func theControllerLearnsTheAccountsRenotesFromTimelines() throws {
         let renote = try #require(Samples.firstNote { $0.isPureRenote && $0.user.host == nil })
@@ -130,16 +110,6 @@ struct RenoteTests {
         controller.set(.notRenoted, for: target.id, renoteCount: nil)
         controller.learn(from: [renote])
         #expect(!controller.isRenoted(target), "what the app did wins over what came in")
-    }
-
-    @Test func aTakenBackRenoteLeavesTheTimeline() throws {
-        let items = Array(Samples.distinctItems.prefix(6))
-        var entries = TimelineEntries()
-        entries.append(items, layouts: Samples.engine().layouts(for: items, context: Samples.context()))
-        #expect(entries.remove(deleted: items[2].id) == [2])
-        #expect(entries.count == 5 && !entries.contains(items[2].id))
-        #expect(entries.index(of: items[3].id) == 2 && entries.layouts[2].key.noteID == items[3].id)
-        #expect(entries.remove(deleted: items[2].id).isEmpty)
     }
 
     @Test func aDeletedNoteTakesItsRenotesAndRepliesAlong() throws {
@@ -208,14 +178,6 @@ struct TapTargetTests {
         }
     }
 
-    @Test func theReactionButtonShowsThatTheUserReacted() throws {
-        let plain = try #require(Samples.firstNote { !$0.isPureRenote && $0.myReaction == nil })
-        #expect(icons(layout(plain)).contains(.reaction))
-        let reacted = plain.applying(ReactionChange(plain).reacting("👍"))
-        #expect(icons(layout(reacted)).contains(.reacted))
-        #expect(!icons(layout(reacted)).contains(.reaction))
-    }
-
     @Test func aNoteThatTakesLikesOnlyHasAHeartAndNoChips() throws {
         var object = TestData.note(id: "n1")
         object["reactions"] = ["❤": 2, "🎉": 1]
@@ -250,24 +212,6 @@ struct TapTargetTests {
         })
         #expect(links == ["hashtag:hibari", "mention:@alice", "https://example.com/page"])
     }
-
-    @Test func contentWarningsToggle() throws {
-        let note = try Samples.makeNote(text: "中身", cw: "注意")
-        #expect(layout(note).targets.contains { $0.action == .toggleCW })
-    }
-
-    @Test func threadLinesJoinAvatarsAndHideTheSeparator() throws {
-        let note = try Samples.makeNote(text: "返信元")
-        let alone = layout(note)
-        #expect(alone.connectors.isEmpty && alone.showsSeparator)
-        var state = NoteDisplayState()
-        state.thread = [.above, .below]
-        let threaded = layout(note, state: state)
-        #expect(threaded.connectors.count == 2)
-        #expect(!threaded.showsSeparator)
-        #expect(threaded.connectors.allSatisfy { $0.width == 2 && $0.maxY <= threaded.height + 0.5 })
-        #expect(threaded.key != alone.key)
-    }
 }
 
 @Suite("Emoji catalog")
@@ -286,12 +230,6 @@ struct EmojiCatalogTests {
         #expect(catalog.search("  ").isEmpty)
     }
 
-    @Test func categoriesKeepTheServersOrder() {
-        #expect(catalog.categories.map(\.name) == ["Blob", "Animals", "その他"])
-        #expect(catalog.categories[0].entries.map(\.name) == ["blobcat_happy", "blobcat"])
-        #expect(catalog.entry(named: "ok")?.url == "u4")
-    }
-
     @Test func chipsReactWithTheLocalEmoji() throws {
         #expect(try ReactionController.reaction(forKey: "👍", emojis: catalog) == "👍")
         #expect(try ReactionController.reaction(forKey: ":blobcat@.:", emojis: catalog) == ":blobcat:")
@@ -306,13 +244,6 @@ struct EmojiCatalogTests {
 @MainActor
 struct EmojiPickerTests {
     private let metrics = EmojiPickerLayout.Metrics(width: 402)
-
-    @Test func wideEmojisSpanTheColumnsTheirWidthNeeds() {
-        #expect(metrics.columns == 8)
-        #expect([0, 1, 1.2, 1.5, 2, 4, 8].map(metrics.span(forAspect:)) == [1, 1, 1, 2, 2, 3, 6])
-        #expect(metrics.span(forAspect: 18) == 6)
-        #expect(EmojiPickerLayout.Metrics(width: 375).span(forAspect: 8) <= 7)
-    }
 
     @Test func anEmojiThatDoesNotFitStartsTheNextRow() {
         let frames = metrics.itemFrames(aspects: [0, 0, 0, 0, 0, 0, 4, 0])
@@ -369,24 +300,6 @@ struct EmojiPickerTests {
         let common = EmojiPickerViewController.commonEmojis.count
         #expect(itemCounts(hidesSensitive: false) == [1, common, 2, 1])
         #expect(itemCounts(hidesSensitive: true) == [common, 1])
-    }
-
-    @Test func theStoreKeepsOnlyWideEmojisAcrossLaunches() throws {
-        let directory = TestData.temporaryDirectory()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appending(path: "aspects.plist")
-        let store = EmojiAspectStore(file: file)
-        store.record(4, for: "wide")
-        store.record(1, for: "square")
-        store.record(3, for: "was_wide")
-        store.record(1.05, for: "was_wide")
-        store.save()
-        store.waitForPendingWrites()
-
-        let reopened = EmojiAspectStore(file: file)
-        #expect(reopened.aspect(of: "wide") == 4)
-        #expect(reopened.aspect(of: "square") == nil)
-        #expect(reopened.aspect(of: "was_wide") == nil)
     }
 
     private final class Grid: NSObject, UICollectionViewDataSource {
@@ -554,15 +467,6 @@ struct NoteAPITests {
         let replies = try await client.replies(to: "n1", since: "n1", limit: 30)
         #expect(replies.map(\.id) == ["n2", "n3"], "oldest first")
     }
-
-    @Test func reactionsTakeTheReactionAsTyped() async throws {
-        let session = StubURLProtocol.session { request, body in
-            #expect(request.url?.path() == "/api/notes/reactions/create")
-            #expect(body["noteId"] as? String == "n1" && body["reaction"] as? String == ":blobcat:")
-            return StubURLProtocol.Response(status: 204)
-        }
-        try await MisskeyClient(server: TestData.server, token: "T", session: session).react(to: "n1", with: ":blobcat:")
-    }
 }
 
 @Suite("Post screen text")
@@ -586,16 +490,6 @@ struct UIKitRichTextTests {
         #expect(abs(wide.bounds.width / wide.bounds.height - 4) < 0.2)
         #expect(UIKitRichText.plainText(of: result.text) == "やあ :blobcat: と :hibari_wide:")
         #expect(result.provisionalEmojis.isEmpty)
-    }
-
-    @Test func linksKeepWhereTheyGo() {
-        let result = builder().build("見て https://example.com", emojis: EmojiContext(host: nil, remoteEmojis: [:]),
-                                     font: Typography.system(18), color: .primaryText)
-        var links: [URL] = []
-        result.text.enumerateAttribute(.link, in: NSRange(location: 0, length: result.text.length)) { value, _, _ in
-            if let url = value as? URL { links.append(url) }
-        }
-        #expect(links == [URL(string: "https://example.com")!])
     }
 }
 

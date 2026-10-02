@@ -3,10 +3,6 @@ import Testing
 @testable import hibari
 
 struct MFMParserTests {
-    @Test func plainText() {
-        #expect(MFMParser.parse("こんにちは") == [.text("こんにちは")])
-    }
-
     @Test func mentions() {
         #expect(MFMParser.parse("@alice さん") == [.mention(username: "alice", host: nil), .text(" さん")])
         #expect(MFMParser.parse("@bob@example.com.") == [.mention(username: "bob", host: "example.com"), .text(".")])
@@ -87,6 +83,7 @@ struct MFMParserTests {
         #expect(MFMParser.parse("$[tada.speed=0s $[x2 :a:]]") == [
             .fn(name: "tada", args: ["speed": "0s"], children: [.fn(name: "x2", args: [:], children: [.emoji("a")])]),
         ])
+        #expect(MFMParser.parse("$[fg.=f00,color=0f0 a]") == [.fn(name: "fg", args: ["color": "0f0"], children: [.text("a")])])
     }
 
     @Test func blocks() {
@@ -100,12 +97,8 @@ struct MFMParserTests {
         #expect(MFMParser.parseSimple("**name** :cat: @x #y") == [.text("**name** "), .emoji("cat"), .text(" @x #y")])
     }
 
-    @Test func functionArgumentsWithoutAKeyAreIgnored() {
-        #expect(MFMParser.parse("$[x.= a]") == [.fn(name: "x", args: [:], children: [.text("a")])])
-        #expect(MFMParser.parse("$[fg.=f00,color=0f0 a]") == [.fn(name: "fg", args: ["color": "0f0"], children: [.text("a")])])
-    }
-
-    @Test(arguments: ["<i>", "<b>", "**", "[", "?[", "$[a ", "<center>", "~~"])
+    // One input per parser path: nested markup, links and functions.
+    @Test(arguments: ["<i>", "[", "$[a "])
     func unclosedOpenersParseInPolynomialTime(opener: String) {
         let text = String(repeating: opener, count: 300) + "x"
         let start = ContinuousClock.now

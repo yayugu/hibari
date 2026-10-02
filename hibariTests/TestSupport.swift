@@ -217,10 +217,6 @@ extension NoteLayoutEngine {
         key(for: item, context: context, now: Samples.now)
     }
 
-    func cachedLayout(for item: TimelineItem, context: LayoutContext) -> NoteLayout? {
-        cachedLayout(for: item, context: context, now: Samples.now)
-    }
-
     func layout(for item: TimelineItem, context: LayoutContext) -> NoteLayout {
         layout(for: item, context: context, now: Samples.now)
     }

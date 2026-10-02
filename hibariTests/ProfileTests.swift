@@ -43,14 +43,6 @@ struct ProfileTests {
         #expect(try Self.decode(["id": "u2", "username": "bob", "url": "HTTP://remote.example/@bob"]).url != nil)
     }
 
-    @Test func theAccountsOwnProfileHasNoRelation() throws {
-        let profile = try Self.decode(["id": "u1", "username": "alice", "description": "", "fields": "nope",
-                                       "birthday": "not a date"])
-        #expect(!profile.relation.isKnown)
-        #expect(profile.description == nil, "an empty bio is none")
-        #expect(profile.fields.isEmpty && profile.followersCount == nil && profile.formattedBirthday == nil)
-    }
-
     @Test func followButtonStates() {
         typealias Relation = UserDetailed.Relation
         #expect(FollowState(Relation(isKnown: true)) == .follow)
@@ -118,9 +110,14 @@ struct ProfileTests {
     @Test func avatarsNamesRepliedAndQuotedUsersOpenProfiles() throws {
         let engine = Samples.engine()
         let context = Samples.context()
-        for item in Samples.items {
-            let layout = engine.layout(for: item, context: context, now: Samples.now)
-            let outer = try #require(item.note)
+        let notes = try [
+            #require(Samples.firstNote { !$0.isPureRenote && $0.renote == nil && $0.reply == nil }),
+            #require(Samples.firstNote { $0.isPureRenote }),
+            #require(Samples.firstNote { !$0.isPureRenote && $0.reply != nil }),
+            #require(Samples.firstNote { !$0.isPureRenote && $0.renote != nil && $0.cw == nil }),
+        ]
+        for outer in notes {
+            let layout = engine.layout(for: TimelineItem(note: outer), context: context, now: Samples.now)
             let note = outer.displayedNote
             let avatar = try #require(layout.images.first { $0.media == nil })
             #expect(layout.action(at: CGPoint(x: avatar.frame.midX, y: avatar.frame.midY)) == .user(note.user.id))

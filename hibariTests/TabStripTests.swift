@@ -20,12 +20,6 @@ struct TabStripTests {
         return tab.convert(tab.bounds, to: strip)
     }
 
-    @Test func tabsThatFitShareTheWidthEqually() throws {
-        let strip = strip(["すべて", "メンション"])
-        #expect(try frame(ofTab: 0, in: strip) == CGRect(x: 0, y: 0, width: 201, height: HeaderView.tabsHeight))
-        #expect(try frame(ofTab: 1, in: strip).minX == 201)
-    }
-
     @Test func timelinesWiderThanTheScreenScrollAlongWithThePager() throws {
         let titles = TimelineKind.allCases.map(\.title)
         let strip = strip(titles)

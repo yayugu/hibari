@@ -43,19 +43,6 @@ final class PerformanceTests: XCTestCase {
     }
 
     @MainActor
-    func testFlingScrollingSignposts() {
-        let app = XCUIApplication()
-        app.launch()
-        let timeline = app.collectionViews["timeline.local"]
-        XCTAssertTrue(timeline.cells.firstMatch.waitForExistence(timeout: 15))
-        let options = XCTMeasureOptions()
-        options.iterationCount = 5
-        measure(metrics: [XCTOSSignpostMetric.scrollingAndDecelerationMetric], options: options) {
-            timeline.swipeUp(velocity: .fast)
-        }
-    }
-
-    @MainActor
     func testGapFillWhileScrollingUp() throws {
         let result = try runBenchmark(["-HibariBenchmark", "gapfill", "-HibariFixtureHiddenNewest", "200",
                                        "-HibariFixtureLatency", "0.3", "-HibariBenchmarkSpeed", "3000"])

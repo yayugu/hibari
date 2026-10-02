@@ -12,24 +12,24 @@ struct MediaViewerTests {
     private static let still = "https://media.example/still.png"
     private static let animated = "https://media.example/animated.gif"
 
-    private let pipeline: ImagePipeline
     private let window: UIWindow
 
     init() throws {
-        let directory = TestData.temporaryDirectory()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let still = directory.appending(path: "still.png")
-        try TestData.png(width: 3000, height: 2000).write(to: still)
-        let animated = directory.appending(path: "animated.gif")
-        try TestData.gif(width: 300, height: 200, frames: 4).write(to: animated)
-        pipeline = ImagePipeline(source: FileMediaSource(files: [Self.still: still, Self.animated: animated]),
-                                 diskDirectory: directory.appending(path: "processed"))
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         window = UIWindow(windowScene: scene)
         window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
     }
 
-    private func page(_ url: String, isCurrent: Bool) async -> MediaPageView {
+    private func page(_ url: String, isCurrent: Bool) async throws -> MediaPageView {
+        let directory = TestData.temporaryDirectory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appending(path: URL(string: url)!.lastPathComponent)
+        // Still larger than a 402pt @3x page, so zooming must decode a sharper bitmap.
+        let data = url == Self.still ? TestData.png(width: 1600, height: 1000)
+            : TestData.gif(width: 300, height: 200, frames: 4)
+        try data.write(to: file)
+        let pipeline = ImagePipeline(source: FileMediaSource(files: [url: file]),
+                                     diskDirectory: directory.appending(path: "processed"))
         let page = MediaPageView(file: DriveFile(imageURL: url), imagePipeline: pipeline)
         page.frame = window.bounds
         window.addSubview(page)
@@ -53,7 +53,7 @@ struct MediaViewerTests {
     }
 
     @Test func leavingAPageDropsItsBitmapForZooming() async throws {
-        let page = await page(Self.still, isCurrent: true)
+        let page = try await page(Self.still, isCurrent: true)
         let fitted = pixelWidth(of: page)
         try #require(fitted > 0)
 
@@ -74,7 +74,7 @@ struct MediaViewerTests {
     }
 
     @Test func onlyTheCurrentPageAnimates() async throws {
-        let page = await page(Self.animated, isCurrent: false)
+        let page = try await page(Self.animated, isCurrent: false)
         let firstFrame = try #require(page.imageView.image)
         try await Task.sleep(for: .milliseconds(150))
         #expect(page.imageView.image === firstFrame, "a neighbour shows its first frame")
@@ -90,7 +90,7 @@ struct MediaViewerTests {
     }
 
     @Test func pagesLetGoOfTheirImagesAndLoadThemAgain() async throws {
-        let page = await page(Self.still, isCurrent: false)
+        let page = try await page(Self.still, isCurrent: false)
         #expect(page.isLoaded && page.imageView.image != nil)
         page.unload()
         #expect(!page.isLoaded && page.imageView.image == nil)

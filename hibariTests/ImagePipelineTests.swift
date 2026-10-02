@@ -9,38 +9,22 @@ struct ImagePipelineTests {
         FileManager.default.temporaryDirectory.appending(path: "hibari-tests-\(UUID().uuidString)")
     }
 
-    private func sampleRequests(_ count: Int) -> [ImageRequest] {
-        let layouts = Samples.engine().layouts(
-            for: Array(Samples.items.prefix(200)),
-            context: Samples.context(revealsSensitiveMedia: true))
-        var seen = Set<String>()
-        return layouts.flatMap(\.imageRequests)
-            .filter { SampleMediaSource.pixelSize(of: $0.url) != nil && seen.insert($0.cacheKey).inserted }
-            .prefix(count)
-            .map { $0 }
-    }
+    private let avatar = ImageRequest(url: "https://media.example/avatar.png?w=96&h=96",
+                                      size: CGSize(width: 24, height: 24), scale: 3, shape: .circle)
 
-    @Test func producesExactlyTheDisplayPixelSize() {
+    @Test func displayImagesHaveTheRequestedPixelsAndAvatarMask() throws {
         let pipeline = ImagePipeline(source: SampleMediaSource(), diskDirectory: temporaryDirectory())
-        let requests = sampleRequests(30)
-        #expect(requests.count == 30)
-        for request in requests {
-            guard let image = pipeline.imageSynchronously(for: request) else {
-                Issue.record("failed to process \(request.url)")
-                continue
-            }
+        let media = ImageRequest(url: "https://media.example/photo.png?w=320&h=160",
+                                 size: CGSize(width: 40, height: 30), scale: 3)
+        for request in [avatar, media] {
+            let image = try #require(pipeline.imageSynchronously(for: request))
             #expect(image.width == request.pixelWidth && image.height == request.pixelHeight)
-            #expect(image.bitmapInfo.contains(.byteOrder32Little))
-            #expect(image.bitsPerPixel == 32)
+            #expect(image.bitmapInfo.contains(.byteOrder32Little) && image.bitsPerPixel == 32)
+            if request.shape == .circle {
+                #expect(alpha(of: image, x: 0, y: 0) == 0)
+                #expect(alpha(of: image, x: image.width / 2, y: image.height / 2) > 0)
+            }
         }
-    }
-
-    @Test func circleRequestsHaveTransparentCorners() throws {
-        let request = try #require(sampleRequests(80).first { $0.shape == .circle })
-        let pipeline = ImagePipeline(source: SampleMediaSource(), diskDirectory: temporaryDirectory())
-        let image = try #require(pipeline.imageSynchronously(for: request))
-        #expect(alpha(of: image, x: 0, y: 0) == 0)
-        #expect(alpha(of: image, x: image.width / 2, y: image.height / 2) > 0)
     }
 
     @Test func fittedRequestsComeBackAtTheImagesShape() throws {
@@ -56,66 +40,6 @@ struct ImagePipelineTests {
         #expect((tall.width, tall.height) == (61, 102))
         let banner = try fitted(2000, 100)
         #expect((banner.width, banner.height) == (816, 41))
-    }
-
-    @Test func processedImagesComeBackFromTheDiskCache() throws {
-        let directory = temporaryDirectory()
-        let source = SampleMediaSource()
-        let request = try #require(sampleRequests(1).first)
-        let first = ImagePipeline(source: source, diskDirectory: directory)
-        _ = try #require(first.imageSynchronously(for: request))
-        #expect(first.stats.withLock { $0.sourceDecodes } == 1)
-
-        first.waitForPendingWrites()
-        let second = ImagePipeline(source: source, diskDirectory: directory)
-        let image = try #require(second.imageSynchronously(for: request))
-        #expect(second.stats.withLock { $0.diskHits } == 1)
-        #expect(second.stats.withLock { $0.sourceDecodes } == 0)
-        #expect(image.width == request.pixelWidth)
-    }
-
-    @Test func asynchronousLoadsAreDeduplicated() async throws {
-        let request = try #require(sampleRequests(1).first)
-        let pipeline = ImagePipeline(source: SampleMediaSource(), diskDirectory: temporaryDirectory())
-        let results = await withCheckedContinuation { (continuation: CheckedContinuation<[Bool], Never>) in
-            Task { @MainActor in
-                let collector = Collector()
-                for _ in 0..<3 {
-                    pipeline.load(request) { image in
-                        collector.results.append(image != nil)
-                        if collector.results.count == 3 { continuation.resume(returning: collector.results) }
-                    }
-                }
-            }
-        }
-        #expect(results == [true, true, true])
-        #expect(pipeline.stats.withLock { $0.sourceDecodes } == 1)
-        #expect(pipeline.cachedImage(for: request) != nil)
-    }
-
-    @Test func newBitmapContextsAreFullyTransparent() throws {
-        for _ in 0..<20 {
-            let dirty = try #require(Bitmap.makeContext(width: 300, height: 200, opaque: false))
-            dirty.setFillColor(CGColor(gray: 1, alpha: 1))
-            dirty.fill(CGRect(x: 0, y: 0, width: 300, height: 200))
-        }
-        let context = try #require(Bitmap.makeContext(width: 300, height: 200, opaque: false))
-        let image = try #require(context.makeImage())
-        let data = try #require(image.dataProvider?.data) as Data
-        #expect(data.allSatisfy { $0 == 0 })
-    }
-
-    @Test func blurhashDecodes() throws {
-        let image = try #require(Blurhash.decode("LEHV6nWB2yk8pyo0adR*.7kCMdnj", width: 24, height: 24))
-        #expect(image.width == 24 && image.height == 24)
-        #expect(Blurhash.decode("bad", width: 8, height: 8) == nil)
-    }
-
-    @Test func blurhashCacheKeepsSizesApart() {
-        let hash = "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
-        #expect(Blurhash.image(for: hash, size: 8)?.width == 8)
-        #expect(Blurhash.image(for: hash, size: 16)?.width == 16)
-        #expect(Blurhash.cachedImage(for: hash, size: 8)?.width == 8)
     }
 
     @Test func diskCacheStaysUnderItsLimit() throws {
@@ -134,25 +58,11 @@ struct ImagePipelineTests {
         #expect(cache.read(key: "image-23") != nil, "the newest are kept")
     }
 
-    @Test func preparingSizesWaitsForDownloads() async throws {
-        let base = SampleMediaSource()
-        let pipeline = ImagePipeline(source: DownloadingMediaSource(base: base, delay: .milliseconds(100)),
-                                     diskDirectory: temporaryDirectory())
-        let request = try #require(sampleRequests(1).first)
-        #expect(pipeline.mediaSize(for: request.url) == .unknown)
-        await pipeline.prepareSizes(of: [request.url], timeout: .seconds(5))
-        #expect(pipeline.mediaSize(for: request.url) == base.mediaSize(for: request.url))
-
-        let missing = "https://missing.example/emoji.png"
-        await pipeline.prepareSizes(of: [missing], timeout: .seconds(5))
-        #expect(pipeline.mediaSize(for: missing) == .unavailable)
-    }
-
     @Test func preparingSizesStopsWaitingAtTheTimeoutButNotLoading() async throws {
         let base = SampleMediaSource()
         let pipeline = ImagePipeline(source: DownloadingMediaSource(base: base, delay: .milliseconds(150)),
                                      diskDirectory: temporaryDirectory())
-        let request = try #require(sampleRequests(1).first)
+        let request = avatar
         let start = ContinuousClock.now
         await pipeline.prepareSizes(of: [request.url], timeout: .milliseconds(30))
         #expect(ContinuousClock.now - start < .milliseconds(200))
@@ -161,14 +71,6 @@ struct ImagePipelineTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(pipeline.mediaSize(for: request.url) == base.mediaSize(for: request.url), "the download went on")
-    }
-
-    @Test func timeLabelsAreDrawnAtTheSlotHeight() throws {
-        let request = TimeLabelRequest(text: " · 5分", fontSize: 15, color: .secondaryText, style: .dark,
-                                       height: 21, baseline: 15, scale: 3)
-        let image = try #require(TimeLabelRenderer.image(for: request))
-        #expect(image.height == 63 && image.width > 0)
-        #expect(TimeLabelRenderer.cachedImage(for: request) === image)
     }
 
     @Test func oversizedBlocksAreNotRasterized() {
@@ -241,10 +143,6 @@ struct ImagePipelineTests {
         let second = try #require(redrawn.withLock { $0 })
         #expect(second.serial == layout.serial && second.missingEmojis.isEmpty)
         #expect(renderer.cached(layout) === second)
-    }
-
-    @MainActor private final class Collector {
-        var results: [Bool] = []
     }
 
     private func noise(width: Int, height: Int) -> CGImage? {

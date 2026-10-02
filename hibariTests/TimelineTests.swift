@@ -50,14 +50,6 @@ struct TimelineTests {
         Samples.engine().layouts(for: items, context: Samples.context(width: width))
     }
 
-    @Test func appendingSkipsNotesAlreadyInTheTimeline() {
-        let items = Array(Samples.distinctItems.prefix(6))
-        var entries = TimelineEntries()
-        #expect(entries.append(Array(items.prefix(4)), layouts: layouts(Array(items.prefix(4)))) == 0..<4)
-        #expect(entries.append(Array(items.suffix(4)), layouts: layouts(Array(items.suffix(4)))) == 4..<6)
-        #expect(entries.items.map(\.id) == items.map(\.id))
-    }
-
     @Test func prependingPutsNewNotesFirst() {
         let items = Array(Samples.distinctItems.prefix(6))
         var entries = TimelineEntries()

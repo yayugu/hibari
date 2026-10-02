@@ -127,6 +127,7 @@ struct NetworkMediaTests {
         }
         #expect(sizes == Array(repeating: CGSize(width: 120, height: 120), count: 3))
         #expect(requests.count == 1)
+        #expect(pipeline.stats.withLock { $0.sourceDecodes } == 1)
         #expect(pipeline.cachedImage(for: request) != nil)
 
         let missing = ImageRequest(url: "https://media.example/gone.png", size: CGSize(width: 10, height: 10), scale: 3)

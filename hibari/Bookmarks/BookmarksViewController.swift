@@ -174,9 +174,13 @@ final class BookmarksViewController: UIViewController {
     }
 
     @objc private func bookmarkDidChange(_ notification: Notification) {
-        guard let change = notification.userInfo?["change"] as? BookmarkChange, change.isBookmarked,
-              let bookmarks = timelines.first, !bookmarks.contains(noteID: change.noteID)
+        guard let change = notification.userInfo?["change"] as? BookmarkChange, let bookmarks = timelines.first
         else { return }
+        if !change.isBookmarked {
+            bookmarks.remove(noteID: change.noteID)
+            return
+        }
+        guard !bookmarks.contains(noteID: change.noteID) else { return }
         bookmarksAreBehind = true
         catchUpBookmarks()
     }

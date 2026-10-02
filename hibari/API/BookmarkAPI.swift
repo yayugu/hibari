@@ -28,10 +28,11 @@ extension MisskeyClient {
 }
 
 /// The account's bookmarks, the latest bookmarked first. The notes come marked as
-/// bookmarked. Not in note id order, so a refresh that does not reach the notes shown
-/// starts over.
+/// bookmarked. Refreshes start over: bookmarks can be removed or reordered without
+/// new notes, and the pagination cursor belongs to a bookmark, not its note.
 struct BookmarkedNotesSource: TimelineSource {
     let client: MisskeyClient
+    var replacesOnRefresh: Bool { true }
 
     func page(until cursor: String?, limit: Int) async throws -> TimelinePage {
         let page = try await client.bookmarks(until: cursor, limit: limit)

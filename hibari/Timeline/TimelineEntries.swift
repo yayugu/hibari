@@ -211,6 +211,12 @@ struct TimelineEntries: Sendable {
         }
     }
 
+    /// Takes out only this entry (removing a bookmark does not delete the note or its
+    /// quotes and replies). Returns its previous index, if present.
+    mutating func remove(noteID: String) -> [Int] {
+        removeAll { $0.id == noteID }
+    }
+
     /// Takes out a deleted note and what the server deletes with it (see
     /// `TimelineItem.isGone(afterDeleting:)`). Returns where they were, in order; the
     /// notes after them move up.

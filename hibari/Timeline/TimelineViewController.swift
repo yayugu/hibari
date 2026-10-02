@@ -500,6 +500,7 @@ final class TimelineViewController: UIViewController {
     /// stays between them, filled as the user scrolls to it; other lists start over from
     /// them then, as with `startingOver`. At the top the new notes show; otherwise, or
     /// `keepingPosition`, they go in above the screen and "新しいノート" shows.
+    /// Sources with changing membership (`replacesOnRefresh`) always start over.
     /// `completion` runs when it is done (or failed).
     func refresh(startingOver: Bool = false, keepingPosition: Bool = false, completion: (() -> Void)? = nil) {
         if let completion { refreshWaiters.append(completion) }
@@ -511,6 +512,7 @@ final class TimelineViewController: UIViewController {
         }
         isRefreshing = true
         if startingOver { rememberShown() }
+        let startingOver = startingOver || source.replacesOnRefresh
         let source = self.source
         let limit = pageSize
         let known = startingOver ? TimelineEntries() : entries
@@ -547,6 +549,10 @@ final class TimelineViewController: UIViewController {
 
     func contains(noteID: String) -> Bool {
         entries.contains(noteID)
+    }
+
+    func remove(noteID: String) {
+        remove { $0.remove(noteID: noteID) }
     }
 
     func retry() {

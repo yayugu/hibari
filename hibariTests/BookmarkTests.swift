@@ -41,6 +41,18 @@ struct BookmarkTests {
         #expect(!takenOff.apply(to: quote.with(isBookmarked: true)).isBookmarked)
     }
 
+    @Test func takingOffABookmarkKeepsQuotesOfTheNote() throws {
+        let quote = try #require(Samples.firstNote { !$0.isPureRenote && $0.renote != nil })
+        let quoted = try #require(quote.renote)
+        let items = [TimelineItem(note: quoted), TimelineItem(note: quote)]
+        var entries = TimelineEntries()
+        entries.append(items, layouts: Samples.engine().layouts(for: items, context: Samples.context()))
+        #expect(entries.remove(noteID: quoted.id) == [0])
+        #expect(entries.items.map(\.id) == [quote.id])
+        #expect(entries.index(of: quote.id) == 0 && entries.layouts[0].key.noteID == quote.id)
+        #expect(entries.remove(noteID: quoted.id).isEmpty)
+    }
+
     @Test func timelinesMarkBothRenotesAndBookmarks() throws {
         let note = try #require(Samples.firstNote { !$0.isPureRenote })
         var renotes = RenoteMarks(accountUserID: "someone else")

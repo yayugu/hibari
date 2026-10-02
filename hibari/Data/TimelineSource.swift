@@ -9,6 +9,10 @@ protocol TimelineSource: Sendable {
     /// to fill later, instead of starting over. Not so for grouped notifications.
     var keepsGaps: Bool { get }
 
+    /// Membership or ordering can change without new note ids (bookmarks). Refreshes
+    /// replace the list with the newest page and restart pagination, even with overlap.
+    var replacesOnRefresh: Bool { get }
+
     /// Up to `limit` entries newer than `sinceID`, the oldest first: the ones right above it
     /// (Misskey's `sinceId` without `untilId`), to fill a gap from below. The page's cursor
     /// is the newest entry sent. nil when the source cannot page that way.
@@ -17,6 +21,7 @@ protocol TimelineSource: Sendable {
 
 extension TimelineSource {
     var keepsGaps: Bool { false }
+    var replacesOnRefresh: Bool { false }
 
     func page(after sinceID: String, limit: Int) async throws -> TimelinePage? { nil }
 }

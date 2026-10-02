@@ -47,7 +47,7 @@ final class BookmarksViewController: UIViewController {
     private let pageFeedback = UISelectionFeedbackGenerator()
 
     private(set) var currentPage = Page.bookmarks
-    private var bookmarksAreBehind = false
+    private var pagesBehind: Set<Page> = []
 
     init(services: NoteServices) {
         self.services = services
@@ -103,11 +103,13 @@ final class BookmarksViewController: UIViewController {
         bars.onChange = { [weak self] progress in self?.applyBars(progress) }
         NotificationCenter.default.addObserver(self, selector: #selector(bookmarkDidChange(_:)),
                                                name: BookmarkController.didChange, object: services.bookmarks)
+        NotificationCenter.default.addObserver(self, selector: #selector(reactionDidChange(_:)),
+                                               name: ReactionController.didChange, object: services.reactions)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        catchUpBookmarks()
+        catchUpCurrentPage()
     }
 
     override func viewDidLayoutSubviews() {
@@ -164,7 +166,7 @@ final class BookmarksViewController: UIViewController {
             bars.reset(for: scrollView)
         }
         bars.show(animated: true)
-        catchUpBookmarks()
+        catchUpCurrentPage()
     }
 
     private func updateScrollsToTop() {
@@ -174,23 +176,33 @@ final class BookmarksViewController: UIViewController {
     }
 
     @objc private func bookmarkDidChange(_ notification: Notification) {
-        guard let change = notification.userInfo?["change"] as? BookmarkChange, let bookmarks = timelines.first
-        else { return }
-        if !change.isBookmarked {
-            bookmarks.remove(noteID: change.noteID)
-            return
-        }
-        guard !bookmarks.contains(noteID: change.noteID) else { return }
-        bookmarksAreBehind = true
-        catchUpBookmarks()
+        guard let change = notification.userInfo?["change"] as? BookmarkChange else { return }
+        membershipDidChange(on: .bookmarks, noteID: change.noteID, isIncluded: change.isBookmarked)
     }
 
-    private func catchUpBookmarks() {
-        guard bookmarksAreBehind, currentPage == .bookmarks, navigationController?.topViewController === self,
-              let bookmarks = timelines.first
+    @objc private func reactionDidChange(_ notification: Notification) {
+        guard let change = notification.userInfo?["change"] as? ReactionChange else { return }
+        membershipDidChange(on: .likes, noteID: change.noteID, isIncluded: change.myReaction != nil)
+    }
+
+    private func membershipDidChange(on page: Page, noteID: String, isIncluded: Bool) {
+        guard timelines.indices.contains(page.rawValue) else { return }
+        let timeline = timelines[page.rawValue]
+        if !isIncluded {
+            timeline.remove(noteID: noteID)
+            return
+        }
+        guard !timeline.contains(noteID: noteID) else { return }
+        pagesBehind.insert(page)
+        catchUpCurrentPage()
+    }
+
+    private func catchUpCurrentPage() {
+        guard pagesBehind.contains(currentPage), navigationController?.topViewController === self,
+              let timeline = currentTimeline
         else { return }
-        bookmarksAreBehind = false
-        bookmarks.refresh()
+        pagesBehind.remove(currentPage)
+        timeline.refresh()
     }
 }
 

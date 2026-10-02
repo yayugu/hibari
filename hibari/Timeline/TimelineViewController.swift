@@ -495,12 +495,10 @@ final class TimelineViewController: UIViewController {
     }
     #endif
 
-    /// Fetches the newest notes and puts the ones not shown yet on top. In a list of notes
-    /// (`TimelineSource.keepsGaps`), when they do not reach the notes shown so far, a gap
-    /// stays between them, filled as the user scrolls to it; other lists start over from
-    /// them then, as with `startingOver`. At the top the new notes show; otherwise, or
-    /// `keepingPosition`, they go in above the screen and "新しいノート" shows.
-    /// Sources with changing membership (`replacesOnRefresh`) always start over.
+    /// Replaces the list with the newest page by default. With `preserveHistory`, merges
+    /// new entries above fetched history, leaving a gap if the page does not reach it.
+    /// At the top new entries show; otherwise, or with `keepingPosition`, they go above
+    /// the screen and "新しいノート" shows. `startingOver` also resets history timelines.
     /// `completion` runs when it is done (or failed).
     func refresh(startingOver: Bool = false, keepingPosition: Bool = false, completion: (() -> Void)? = nil) {
         if let completion { refreshWaiters.append(completion) }
@@ -511,13 +509,13 @@ final class TimelineViewController: UIViewController {
             return
         }
         isRefreshing = true
-        if startingOver { rememberShown() }
-        let startingOver = startingOver || source.replacesOnRefresh
+        let preservesHistory = source.refreshPolicy == .preserveHistory
+        if startingOver, preservesHistory { rememberShown() }
+        let replaces = startingOver || !preservesHistory
         let source = self.source
         let limit = pageSize
-        let known = startingOver ? TimelineEntries() : entries
-        let newest = startingOver ? nil : newestID ?? entries.items.first?.id
-        let keepsGaps = source.keepsGaps
+        let known = replaces ? TimelineEntries() : entries
+        let newest = replaces ? nil : newestID ?? entries.items.first?.id
         let filter = entryFilter()
         let prepare = layoutPreparation(context: context)
         Task.detached(priority: .userInitiated) {
@@ -525,7 +523,7 @@ final class TimelineViewController: UIViewController {
                 let page = try await source.page(until: nil, limit: limit)
                 let entries = page.entries
                 let update: RefreshUpdate
-                if keepsGaps, let newest {
+                if let newest {
                     let split = entries.firstIndex { $0.id <= newest } ?? entries.endIndex
                     let reached = page.cursor.map { $0 <= newest } ?? true
                     let items = filter.newItems(in: entries[..<split], excluding: known)
@@ -533,11 +531,9 @@ final class TimelineViewController: UIViewController {
                                            changed: filter.changed(in: entries[split...], known: known),
                                            replacing: false, gapBelow: reached ? nil : page.cursor.map { ($0, newest) })
                 } else {
-                    let overlap = entries.firstIndex { known.contains($0.id) } ?? entries.endIndex
-                    let items = filter.newItems(in: entries[..<overlap], excluding: known)
+                    let items = filter.newItems(in: entries, excluding: TimelineEntries())
                     update = RefreshUpdate(items: items, layouts: await prepare(items),
-                                           changed: filter.changed(in: entries[overlap...], known: known),
-                                           replacing: overlap == entries.endIndex, gapBelow: nil)
+                                           changed: [], replacing: true, gapBelow: nil)
                 }
                 await self.finishRefresh(update, newest: entries.first?.id, cursor: page.cursor,
                                          isEnd: page.cursor == nil, keepingPosition: keepingPosition)

@@ -64,7 +64,7 @@ final class TimelinePagerViewController: UIViewController {
             let controller = TimelineViewController(timelineID: timeline.id, source: timeline.source, services: services)
             controller.emptyMessage = timeline.emptyMessage
             controller.waitsForActivation = true
-            if savesTimelines {
+            if savesTimelines, timeline.source.refreshPolicy == .preserveHistory {
                 controller.snapshotStore = TimelineSnapshotStore(accountID: session.account.id, timelineID: timeline.id)
             }
             controller.scrollObserver = self

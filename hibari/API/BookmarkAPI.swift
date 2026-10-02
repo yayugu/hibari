@@ -32,7 +32,6 @@ extension MisskeyClient {
 /// new notes, and the pagination cursor belongs to a bookmark, not its note.
 struct BookmarkedNotesSource: TimelineSource {
     let client: MisskeyClient
-    var replacesOnRefresh: Bool { true }
 
     func page(until cursor: String?, limit: Int) async throws -> TimelinePage {
         let page = try await client.bookmarks(until: cursor, limit: limit)

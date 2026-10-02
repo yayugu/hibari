@@ -87,7 +87,7 @@ struct BookmarkAPITests {
             return
         }
         #expect(note.isBookmarked)
-        #expect(!source.keepsGaps, "in the order they were bookmarked, not by note id")
+        #expect(source.refreshPolicy == .replace, "in the order they were bookmarked, not by note id")
     }
 
     @Test func theNotesTheAccountReactedToPageByTheReaction() async throws {

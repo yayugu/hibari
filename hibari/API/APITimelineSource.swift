@@ -6,6 +6,10 @@ struct APITimelineSource: NoteTimelineSource {
     /// Sent with every page (the direct notes: `notes/mentions` with `visibility`).
     var parameters: [String: any Sendable] = [:]
 
+    var refreshPolicy: RefreshPolicy {
+        TimelineKind.allCases.first { $0.endpoint == endpoint }?.refreshPolicy ?? .replace
+    }
+
     func notes(until untilID: String?, limit: Int) async throws -> [Note] {
         var parameters = parameters
         parameters["limit"] = limit
@@ -49,6 +53,13 @@ enum TimelineKind: String, CaseIterable, Sendable {
         case .local: "notes/local-timeline"
         case .social: "notes/hybrid-timeline"
         case .global: "notes/global-timeline"
+        }
+    }
+
+    var refreshPolicy: RefreshPolicy {
+        switch self {
+        case .home, .local, .social, .global: .preserveHistory
+        case .featured: .replace
         }
     }
 

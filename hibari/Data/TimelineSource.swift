@@ -1,17 +1,21 @@
 import Foundation
 
+/// How a refresh updates a list; independent of whether its view stays in memory.
+enum RefreshPolicy: Sendable {
+    /// Replace with the newest page and restart pagination, even if entries overlap.
+    case replace
+    /// Keep fetched history and merge new entries. Entries must be newest first with
+    /// ids growing with time; an unfetched interval stays as a gap to fill later.
+    case preserveHistory
+}
+
 protocol TimelineSource: Sendable {
     /// Up to `limit` entries older than the one `cursor` names (the newest when nil).
     func page(until cursor: String?, limit: Int) async throws -> TimelinePage
 
-    /// The entries are in id order, newest first, and ids grow with time (Misskey's note
-    /// ids). A refresh that does not reach the entries shown then leaves a gap above them
-    /// to fill later, instead of starting over. Not so for grouped notifications.
-    var keepsGaps: Bool { get }
-
-    /// Membership or ordering can change without new note ids (bookmarks). Refreshes
-    /// replace the list with the newest page and restart pagination, even with overlap.
-    var replacesOnRefresh: Bool { get }
+    /// Replacing is the default. Only timelines meant to retain browsing history opt
+    /// into `preserveHistory`; returning notes does not imply that policy.
+    var refreshPolicy: RefreshPolicy { get }
 
     /// Up to `limit` entries newer than `sinceID`, the oldest first: the ones right above it
     /// (Misskey's `sinceId` without `untilId`), to fill a gap from below. The page's cursor
@@ -20,8 +24,7 @@ protocol TimelineSource: Sendable {
 }
 
 extension TimelineSource {
-    var keepsGaps: Bool { false }
-    var replacesOnRefresh: Bool { false }
+    var refreshPolicy: RefreshPolicy { .replace }
 
     func page(after sinceID: String, limit: Int) async throws -> TimelinePage? { nil }
 }
@@ -56,8 +59,6 @@ protocol NoteTimelineSource: TimelineSource {
 }
 
 extension NoteTimelineSource {
-    var keepsGaps: Bool { true }
-
     func page(until cursor: String?, limit: Int) async throws -> TimelinePage {
         let notes = try await notes(until: cursor, limit: limit)
         return TimelinePage(entries: notes.map(TimelineEntry.note), cursor: notes.last?.id)

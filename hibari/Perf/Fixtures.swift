@@ -61,6 +61,7 @@ final class FixtureStore: Sendable {
 /// oldest first), `limit` notes per request, after a simulated network delay. It can hold
 /// back its newest notes (`hidden`) until `revealAll()`, as if they were posted meanwhile.
 actor FixtureTimelineSource: NoteTimelineSource {
+    nonisolated let refreshPolicy: RefreshPolicy
     private let store: FixtureStore
     private let pages: [String]
     private let latency: Duration
@@ -70,6 +71,7 @@ actor FixtureTimelineSource: NoteTimelineSource {
 
     init(store: FixtureStore, timeline: FixtureStore.Manifest.Timeline, latency: Duration, hidden: Int = 0) {
         self.store = store
+        refreshPolicy = TimelineKind.allCases.first { $0.endpoint == timeline.endpoint }?.refreshPolicy ?? .replace
         pages = timeline.pages
         self.latency = latency
         self.hidden = hidden

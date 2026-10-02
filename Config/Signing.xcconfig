@@ -4,4 +4,14 @@
 DEVELOPMENT_TEAM =
 BUNDLE_ID_PREFIX = devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier)
 
+// Development builds get their own bundle ID so they install alongside the
+// release app without sharing its accounts and settings.
+BUNDLE_ID_SUFFIX =
+BUNDLE_ID_SUFFIX[config=Debug] = .debug
+BUNDLE_ID_SUFFIX[config=Perf] = .debug
+
+APP_DISPLAY_NAME = Hibari
+APP_DISPLAY_NAME[config=Debug] = Hibari β
+APP_DISPLAY_NAME[config=Perf] = Hibari β
+
 #include? "Signing.local.xcconfig"

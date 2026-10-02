@@ -8,6 +8,7 @@
 
 Xcode 27 / iOS 27 SDK が必要です。
 実機で動かす場合は `Config/Signing.local.xcconfig`（gitignore）に Team ID と Bundle ID prefix を書きます（`Config/Signing.xcconfig` 参照）。
+Debug / Perf 構成は Bundle ID の末尾に `.debug` が付き（表示名は「Hibari β」）、リリース版とは別アプリとしてインストールされます。
 
 ```sh
 # 1. ビルドして実行（Xcode で hibari スキームを Run でも可）

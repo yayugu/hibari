@@ -326,6 +326,7 @@ final class ComposeViewController: UIViewController {
         postButton.configuration = configuration
         photoButton.isEnabled = !isPosting && attachments.count < Self.maxAttachments
         emojiButton.isEnabled = !isPosting
+        textView.isEditable = !isPosting
         cancelButton.isEnabled = !isPosting
         attachmentStrip.isEditable = !isPosting
         removeQuoteButton.isEnabled = !isPosting

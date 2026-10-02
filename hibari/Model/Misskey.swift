@@ -57,7 +57,7 @@ final class Note: Codable, Sendable {
         text != nil || cw != nil || !files.isEmpty || poll != nil
     }
 
-    var reactionTotal: Int { reactions.values.reduce(0, +) }
+    var reactionTotal: Int { reactions.values.reduce(0, ServerCount.adding) }
 
     /// Takes likes only (Misskey's いいねのみ): every reaction becomes ❤.
     var isLikeOnly: Bool { reactionAcceptance == "likeOnly" }
@@ -83,9 +83,9 @@ final class Note: Codable, Sendable {
         visibility = (try? c.decodeIfPresent(String.self, forKey: .visibility)) ?? "public"
         visibleUserIds = (try? c.decodeIfPresent([String].self, forKey: .visibleUserIds)) ?? []
         localOnly = (try? c.decodeIfPresent(Bool.self, forKey: .localOnly)) ?? false
-        renoteCount = (try? c.decodeIfPresent(Int.self, forKey: .renoteCount)) ?? 0
-        repliesCount = (try? c.decodeIfPresent(Int.self, forKey: .repliesCount)) ?? 0
-        reactions = (try? c.decodeIfPresent([String: Int].self, forKey: .reactions)) ?? [:]
+        renoteCount = max(0, (try? c.decodeIfPresent(Int.self, forKey: .renoteCount)) ?? 0)
+        repliesCount = max(0, (try? c.decodeIfPresent(Int.self, forKey: .repliesCount)) ?? 0)
+        reactions = ((try? c.decodeIfPresent([String: Int].self, forKey: .reactions)) ?? [:]).mapValues { max(0, $0) }
         reactionEmojis = (try? c.decodeIfPresent([String: String].self, forKey: .reactionEmojis)) ?? [:]
         emojis = (try? c.decodeIfPresent([String: String].self, forKey: .emojis)) ?? [:]
         files = (try? c.decodeIfPresent(LossyArray<DriveFile>.self, forKey: .files))?.elements ?? []
@@ -230,7 +230,7 @@ struct ReactionChange: NoteChange, Equatable {
             reactions[old] = count > 1 ? count - 1 : nil
         }
         if let key {
-            reactions[key, default: 0] += 1
+            reactions[key] = ServerCount.adding(reactions[key, default: 0], 1)
         }
         return ReactionChange(noteID: noteID, reactions: reactions, reactionEmojis: reactionEmojis, myReaction: key)
     }

@@ -35,6 +35,36 @@ struct ModelTests {
         #expect(decoded.poll == nil)
     }
 
+    @Test func serverCountsSaturateInsteadOfOverflowing() throws {
+        let decoded = try #require(decode([
+            note("\"reactions\":{\"❤\":\(Int.max),\"👍\":1},\"renoteCount\":\(Int.max)"),
+        ]).first)
+        #expect(decoded.reactionTotal == Int.max)
+        #expect(ReactionChange(decoded).reacting("❤").reactions["❤"] == Int.max)
+        #expect(ServerCount.adding(decoded.renoteCount, 1) == Int.max)
+        #expect(ServerCount.adding(2, 3) == 5)
+        #expect(ServerCount.adding(Int.min, 1) == 1)
+
+        let negative = try #require(decode([
+            note("\"reactions\":{\"❤\":\(Int.min)},\"renoteCount\":\(Int.min),\"repliesCount\":-1"),
+        ]).first)
+        #expect(negative.reactionTotal == 0 && negative.reactions["❤"] == 0)
+        #expect(negative.renoteCount == 0 && negative.repliesCount == 0)
+    }
+
+    @Test func pollRatiosHandleHugeAndNegativeCounts() {
+        func poll(_ votes: [Int]) -> Poll {
+            Poll(multiple: false, expiresAt: nil,
+                 choices: votes.map { Poll.Choice(text: "choice", votes: $0, isVoted: nil) })
+        }
+        #expect(poll([Int.max, Int.max, Int.min]).voteRatios == [0.5, 0.5, 0])
+        #expect(poll([Int.max, Int.max, Int.min]).voteTotal == Int.max)
+        #expect(poll([1, 3]).voteTotal == 4)
+        #expect(poll([0, -1]).voteRatios == [0, 0])
+        #expect(poll([1, 3]).voteRatios == [0.25, 0.75])
+        #expect(poll([]).voteRatios.isEmpty)
+    }
+
     @Test func aBrokenFileIsDroppedFromItsNote() throws {
         let notes = try decode([
             note(#""files":[{"id":"f1","type":"image/png","url":"U"},{"type":"image/png"}]"#),

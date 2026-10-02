@@ -238,8 +238,7 @@ final class PollView: UIView {
     func configure(_ poll: Poll, text: (String) -> NSAttributedString) {
         rows.forEach { $0.background.removeFromSuperview() }
         rows = []
-        let total = poll.choices.reduce(0) { $0 + $1.votes }
-        ratios = poll.choices.map { total > 0 ? CGFloat($0.votes) / CGFloat(total) : 0 }
+        ratios = poll.voteRatios.map { CGFloat($0) }
         for (choice, ratio) in zip(poll.choices, ratios) {
             let background = UIView()
             background.backgroundColor = .hibari(.chipBackground)
@@ -262,7 +261,7 @@ final class PollView: UIView {
         }
         footer.font = .systemFont(ofSize: 13)
         footer.textColor = .hibari(.secondaryText)
-        var summary = "\(total)票"
+        var summary = "\(poll.voteTotal)票"
         if let expiresAt = poll.expiresAt {
             let remaining = expiresAt.timeIntervalSinceNow
             summary += remaining > 0 ? " · 残り\(RelativeTime.duration(remaining))" : " · 終了"

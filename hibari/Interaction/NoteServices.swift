@@ -243,7 +243,7 @@ extension NoteServices {
         let draft = NoteDraft(visibility: NoteVisibility.remembered(for: account).narrowed(to: NoteVisibility(of: note)),
                               renoteID: note.id)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        renotes.set(.sending, for: note.id, renoteCount: note.renoteCount + 1)
+        renotes.set(.sending, for: note.id, renoteCount: ServerCount.adding(note.renoteCount, 1))
         Task { [weak self] in
             do {
                 let created = try await client.createNote(draft)
@@ -260,7 +260,7 @@ extension NoteServices {
     func undoRenote(_ note: Note) {
         guard let client, case .renoted(let renoteID) = renotes.state(of: note.id) else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        renotes.set(.deleting(renoteID), for: note.id, renoteCount: max(0, note.renoteCount - 1))
+        renotes.set(.deleting(renoteID), for: note.id, renoteCount: max(0, max(0, note.renoteCount) - 1))
         Task { [weak self] in
             do {
                 try await client.deleteNote(renoteID)

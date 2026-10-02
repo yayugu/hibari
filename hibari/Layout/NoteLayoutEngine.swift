@@ -633,14 +633,14 @@ struct NoteLayoutBuilder {
     }
 
     private func pollBlock(_ poll: Poll, note: Note, width: CGFloat) -> ([DrawOp], CGFloat, TimePlacement?) {
-        let total = poll.choices.reduce(0) { $0 + $1.votes }
+        let ratios = poll.voteRatios
         let rowHeight = (smallMetrics.lineHeight + 16).rounded()
         var ops: [DrawOp] = []
         var y: CGFloat = 0
-        for choice in poll.choices {
+        for (choice, voteRatio) in zip(poll.choices, ratios) {
             let rect = CGRect(x: 0, y: y, width: width, height: rowHeight)
             ops.append(.roundedRect(rect, radius: 8, fill: .chipBackground, stroke: nil))
-            let ratio = total > 0 ? CGFloat(choice.votes) / CGFloat(total) : 0
+            let ratio = CGFloat(voteRatio)
             if ratio > 0 {
                 ops.append(.roundedRect(CGRect(x: 0, y: y, width: max(16, width * ratio), height: rowHeight),
                                         radius: 8, fill: .chipReactedBackground, stroke: nil))
@@ -662,7 +662,7 @@ struct NoteLayoutBuilder {
             y += rowHeight + 6
         }
         let footerMetrics = typography.lineMetrics(for: typography.caption)
-        let footer = TextLayout.singleLine(plain("\(total)票", font: typography.caption, role: .secondaryText),
+        let footer = TextLayout.singleLine(plain("\(poll.voteTotal)票", font: typography.caption, role: .secondaryText),
                                            metrics: footerMetrics)
         ops.append(.text(footer, origin: CGPoint(x: 0, y: y)))
         let fontSize = CTFontGetSize(typography.caption)

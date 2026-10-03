@@ -202,7 +202,11 @@ struct ComposeTextViewTests {
         try #require(view.markedTextRange != nil, "no marked text outside a window")
         view.textViewDidChange(view)
         #expect(view.markedTextRange != nil && emojis(in: view).isEmpty)
+        // The keyboard can overwrite this test's marked text with pending candidates.
+        let inputDelegate = view.inputDelegate
+        view.inputDelegate = nil
         view.unmarkText()
+        view.inputDelegate = inputDelegate
         view.textViewDidChange(view)
         #expect(emojis(in: view).map(\.name) == ["blobcat"])
         #expect(view.source == "#タグ :blobcat:")

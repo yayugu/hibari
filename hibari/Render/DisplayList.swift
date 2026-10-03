@@ -3,7 +3,7 @@ import CoreGraphics
 enum Icon: UInt8, Hashable, Sendable {
     case reply, renote, reaction, reacted, like, liked, bookmark, bookmarked, share
     case renoteBadge, visibilityHome, visibilityFollowers, visibilitySpecified, file, check
-    case person, poll, clock, bell
+    case person, poll, clock, bell, medal
 
     var assetName: String? {
         switch self {
@@ -43,6 +43,7 @@ enum Icon: UInt8, Hashable, Sendable {
         case .poll: "chart.bar.fill"
         case .clock: "clock.fill"
         case .bell: "bell.fill"
+        case .medal: "medal.fill"
         }
     }
 
@@ -70,6 +71,8 @@ enum DrawOp: Sendable {
     case emoji(url: String, rect: CGRect)
     case icon(Icon, rect: CGRect, color: ColorRole)
     case roundedRect(CGRect, radius: CGFloat, fill: ColorRole?, stroke: ColorRole?)
+    /// An achievement's badge without its emoji (see `Medal`).
+    case medal(Achievement.Frame, background: (bottom: UInt32, top: UInt32)?, rect: CGRect)
 }
 
 struct RasterBlock: Sendable {

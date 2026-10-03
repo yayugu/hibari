@@ -65,6 +65,8 @@ enum Rasterizer {
                     context.setLineWidth(1)
                     context.strokePath()
                 }
+            case .medal(let frame, let background, let rect):
+                Medal.draw(frame, background: background, in: flipped(rect), context: context, scale: scale)
             }
         }
         return context.makeImage()

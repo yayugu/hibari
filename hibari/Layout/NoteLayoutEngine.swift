@@ -6,12 +6,15 @@ import os
 final class NoteLayoutEngine: Sendable {
     let emojiResolver: EmojiResolver
     let sizes: any MediaSizeProvider
+    /// The account's server, for images it serves itself (achievement badges). nil: none.
+    let server: URL?
     private let cache = Locked<[LayoutKey: NoteLayout]>([:])
     private let cacheLimit = 5000
 
-    init(emojiResolver: EmojiResolver, sizes: any MediaSizeProvider) {
+    init(emojiResolver: EmojiResolver, sizes: any MediaSizeProvider, server: URL? = nil) {
         self.emojiResolver = emojiResolver
         self.sizes = sizes
+        self.server = server
     }
 
     func key(for item: TimelineItem, context: LayoutContext, now: Date) -> LayoutKey {
@@ -34,7 +37,7 @@ final class NoteLayoutEngine: Sendable {
         let key = key(for: item, context: context, now: now)
         if let hit = cache.withLock({ $0[key] }), emojiSizesAreCurrent(in: hit) { return hit }
         let signpost = Signposts.layout.beginInterval("note", id: Signposts.layout.makeSignpostID())
-        var builder = NoteLayoutBuilder(item: item, key: key, resolver: emojiResolver, sizes: sizes)
+        var builder = NoteLayoutBuilder(item: item, key: key, resolver: emojiResolver, sizes: sizes, server: server)
         let layout = switch item.content {
         case .note(let note): builder.build(note)
         case .notification(let notification): builder.build(notification)
@@ -140,6 +143,7 @@ struct NoteLayoutBuilder {
     let palette: Palette
     let resolver: EmojiResolver
     let sizer: EmojiSizer
+    let server: URL?
     let scale: CGFloat
     let bodyMetrics: LineMetrics
     let secondaryMetrics: LineMetrics
@@ -166,7 +170,7 @@ struct NoteLayoutBuilder {
         var prefix = NoteLayoutBuilder.timePrefix
     }
 
-    init(item: TimelineItem, key: LayoutKey, resolver: EmojiResolver, sizes: any MediaSizeProvider) {
+    init(item: TimelineItem, key: LayoutKey, resolver: EmojiResolver, sizes: any MediaSizeProvider, server: URL?) {
         self.item = item
         self.key = key
         context = key.context
@@ -175,6 +179,7 @@ struct NoteLayoutBuilder {
         palette = context.palette
         self.resolver = resolver
         sizer = EmojiSizer(sizes)
+        self.server = server
         scale = context.displayScale
         bodyMetrics = typography.lineMetrics(for: typography.body)
         secondaryMetrics = typography.lineMetrics(for: typography.secondary)
@@ -789,6 +794,8 @@ extension DrawOp {
         case .icon(let icon, let rect, let color): .icon(icon, rect: rect.offsetBy(dx: dx, dy: dy), color: color)
         case .roundedRect(let rect, let radius, let fill, let stroke):
             .roundedRect(rect.offsetBy(dx: dx, dy: dy), radius: radius, fill: fill, stroke: stroke)
+        case .medal(let frame, let background, let rect):
+            .medal(frame, background: background, rect: rect.offsetBy(dx: dx, dy: dy))
         }
     }
 }

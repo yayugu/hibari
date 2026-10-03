@@ -12,6 +12,8 @@ final class Typography: @unchecked Sendable {
     let small: CTFont
     let smallBold: CTFont
     let caption: CTFont
+    /// Achievements' flavor text, set apart from the rest like a card game's.
+    let flavor: CTFont
 
     private static let cache = Locked<[CGFloat: Typography]>([:])
 
@@ -33,6 +35,8 @@ final class Typography: @unchecked Sendable {
         small = Self.system(size(14))
         smallBold = Self.system(size(14), bold: true)
         caption = Self.system(size(13))
+        // Below the body size: Mincho looks larger than the system font at the same size.
+        flavor = CTFontCreateWithName("HiraMinProN-W3" as CFString, size(14), nil)
     }
 
     static func system(_ size: CGFloat, bold: Bool = false) -> CTFont {

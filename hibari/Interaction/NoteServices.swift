@@ -120,6 +120,13 @@ extension NoteServices {
         UIApplication.shared.open(url)
     }
 
+    /// The account's achievements on its server's web client: the app shows only what a
+    /// notification says.
+    func openAchievements() {
+        guard let url = client?.server.appending(path: "my/achievements") else { return }
+        UIApplication.shared.open(url)
+    }
+
     func openUser(_ user: User, from controller: UIViewController, animated: Bool = true) {
         guard client != nil else { return }
         open(profile: .user(user), from: controller, animated: animated)

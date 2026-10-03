@@ -185,6 +185,44 @@ struct NotificationTests {
         #expect(summary.frame.height > slot.height * 1.5, "more than one line")
         #expect(slot.origin.x + slot.reservedWidth <= 320, "the time stays on screen")
     }
+
+    private func achievementLayout(_ id: String) throws -> NoteLayout {
+        let engine = NoteLayoutEngine(emojiResolver: EmojiResolver(localEmojis: [:], mediaProxy: nil),
+                                      sizes: SampleMediaSource(), server: TestData.server)
+        let object = NotificationJSON.notification("a1", "achievementEarned", ["achievement": id])
+        return engine.layout(for: TimelineItem(notification: try notification(object)), context: Samples.context())
+    }
+
+    private func hasMedal(_ layout: NoteLayout) -> Bool {
+        layout.blocks.contains { $0.ops.contains { if case .medal = $0 { true } else { false } } }
+    }
+
+    @Test func misskeysAchievementsShowTheirTextAndBadge() throws {
+        let layout = try achievementLayout("notes1")
+        #expect(layout.accessibility.beforeTime == "実績「just setting up my msky」を獲得しました")
+        #expect(layout.accessibility.afterTime == "初めてノートを投稿した、良いMisskeyライフを！")
+        #expect(hasMedal(layout))
+        #expect(layout.timeSlots.isEmpty)
+        #expect(layout.emojiRequests.map(\.url) == [TestData.server.absoluteString + "/fluent-emoji/1f4dd.png"],
+                "the emoji comes from the account's server")
+        #expect(layout.action(at: CGPoint(x: 30, y: 30)) == nil, "the row opens the achievements")
+    }
+
+    @Test func aServersOwnAchievementShowsItsID() throws {
+        let layout = try achievementLayout("serverOnlyThing")
+        #expect(layout.accessibility.beforeTime == "実績「serverOnlyThing」を獲得しました")
+        #expect(layout.accessibility.afterTime.isEmpty)
+        #expect(!hasMedal(layout) && layout.emojiRequests.isEmpty)
+        #expect(try achievementLayout("").accessibility.beforeTime == "実績を獲得しました")
+    }
+
+    @Test func theCatalogHasEveryAchievementsText() {
+        #expect(Achievement.catalog.count >= 78)
+        for (id, achievement) in Achievement.catalog {
+            #expect(!achievement.title.isEmpty && !achievement.description.isEmpty, "\(id)")
+            #expect(achievement.emoji.allSatisfy { $0.isHexDigit || $0 == "-" }, "\(id)")
+        }
+    }
 }
 
 @Suite("Unread notifications")

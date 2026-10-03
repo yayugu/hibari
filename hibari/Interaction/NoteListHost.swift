@@ -73,6 +73,8 @@ extension NoteListHost {
                 services.openNote(note, from: self)
             } else if let user = notification.users.first {
                 services.openUser(user, from: self)
+            } else if case .achievementEarned = notification.kind {
+                services.openAchievements()
             }
         default:
             break

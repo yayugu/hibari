@@ -66,10 +66,11 @@ final class AccountStore {
         save()
     }
 
-    /// Removes the account, its token and its saved timelines. When it was the current
-    /// one, the next account (or the previous, for the last) becomes current.
+    /// Removes the account, its token, its saved timelines and its drafts. When it was the
+    /// current one, the next account (or the previous, for the last) becomes current.
     func signOut(_ account: Account) {
         TimelineSnapshotStore.removeAll(accountID: account.id)
+        ComposeDraftStore.removeAll(accountID: account.id)
         guard let index = accounts.firstIndex(where: { $0.id == account.id }) else {
             tokens.removeToken(for: account.id)
             return

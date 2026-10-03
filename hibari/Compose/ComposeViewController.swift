@@ -17,6 +17,11 @@ final class ComposeViewController: UIViewController {
     }
     private var loadingQuote = false
     private var didFocus = false
+    private let drafts: ComposeDraftStore
+    /// The draft this composer opened with, put back in `viewDidLoad`.
+    private var restoredDraft: ComposeDraft?
+    /// Sent or thrown away: nothing is kept any more.
+    private var isDraftDone = false
 
     private let topBar = UIView()
     private let cancelButton = UIButton(type: .system)
@@ -43,18 +48,35 @@ final class ComposeViewController: UIViewController {
     private static let topBarHeight: CGFloat = 52
     private static let toolbarHeight: CGFloat = 48
 
-    /// `recipient`: a direct note to them.
+    /// `recipient`: a direct note to them. Opened the same way as before, it picks up
+    /// the draft left then.
     init(services: NoteServices, client: MisskeyClient, reply: Note? = nil, quote: Note? = nil, recipient: User? = nil) {
         self.services = services
         self.client = client
         self.reply = reply
+        let slot: ComposeDraftStore.Slot = if let recipient {
+            .direct(userID: recipient.id)
+        } else if let reply {
+            .reply(noteID: reply.id)
+        } else if let quote {
+            .quote(noteID: quote.id)
+        } else {
+            .note
+        }
+        drafts = ComposeDraftStore(accountID: services.account.id, slot: slot)
+        let draft = drafts.load()
+        restoredDraft = draft
+        let quote = draft.map(\.quote) ?? quote
         self.quote = quote
         if let recipient {
             visibility = .specified
             recipientIDs = [recipient.id]
             recipientNames[recipient.id] = recipient.acct
         } else {
-            visibility = NoteVisibility.remembered(for: services.account)
+            let saved = draft.flatMap { NoteVisibility(rawValue: $0.visibility) }.flatMap {
+                NoteVisibility.pickable.contains($0) ? $0 : nil
+            }
+            visibility = (saved ?? NoteVisibility.remembered(for: services.account))
                 .narrowed(to: reply.flatMap(NoteVisibility.init(of:)))
                 .narrowed(to: quote.flatMap(NoteVisibility.init(of:)))
             recipientIDs = visibility == .specified
@@ -108,6 +130,7 @@ final class ComposeViewController: UIViewController {
 
         textView.placeholder = reply != nil ? "返信をノート" : isDirect ? "メッセージを入力"
             : quote != nil ? "コメントを追加" : "いまどうしてる？"
+        if let text = restoredDraft?.text { textView.insertPlainText(text) }
         textView.accessibilityIdentifier = "compose.text"
         textView.onChange = { [weak self] in self?.textDidChange() }
         textView.onSelectionChange = { [weak self] in self?.scrollToCaret() }
@@ -159,6 +182,10 @@ final class ComposeViewController: UIViewController {
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
             self.visibilityButton.layer.borderColor = UIColor.hibari(.border).resolvedColor(with: self.traitCollection).cgColor
         }
+        for saved in restoredDraft?.attachments ?? [] {
+            add(ComposeAttachment(restoring: saved, from: drafts.imageURL(for: saved.id), client: client))
+        }
+        restoredDraft = nil
         updateState()
     }
 
@@ -312,6 +339,7 @@ final class ComposeViewController: UIViewController {
     }
 
     private func textDidChange() {
+        saveDraft()
         updateState()
         view.setNeedsLayout()
         view.layoutIfNeeded()
@@ -370,6 +398,7 @@ final class ComposeViewController: UIViewController {
                 self.visibility = option
                 NoteVisibility.remember(option, for: self.services.account)
                 self.updateVisibility()
+                self.saveDraft()
             }
         })
         view.setNeedsLayout()
@@ -430,6 +459,7 @@ final class ComposeViewController: UIViewController {
         configureQuoteView()
         updateVisibility()
         updateState()
+        saveDraft()
         view.setNeedsLayout()
     }
 
@@ -502,9 +532,17 @@ final class ComposeViewController: UIViewController {
             guard let self, let attachment else { return }
             self.attachmentStrip.update(attachment)
             self.view.setNeedsLayout()
+            // Its file, so that sending after a restart does not upload it again.
+            if attachment.state == .uploaded { self.saveDraft() }
+        }
+        attachment.onPrepare = { [weak self, weak attachment] image in
+            guard let self, let attachment else { return }
+            self.drafts.saveImage(image.data, for: attachment.id)
+            self.saveDraft()
         }
         attachmentStrip.show(attachments)
         updateState()
+        saveDraft()
         view.setNeedsLayout()
     }
 
@@ -515,6 +553,7 @@ final class ComposeViewController: UIViewController {
         attachments.removeAll { $0 === attachment }
         attachmentStrip.show(attachments)
         updateState()
+        saveDraft()
         UIView.animate(withDuration: 0.25) {
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
@@ -562,6 +601,7 @@ final class ComposeViewController: UIViewController {
                 }
                 let note = try await client.createNote(draft)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
+                self?.discardDraft()
                 self?.services.didPost(note)
                 self?.dismiss(animated: true) {
                     Toast.show(sent)
@@ -585,14 +625,37 @@ final class ComposeViewController: UIViewController {
         var errorDescription: String? { "画像をアップロードできませんでした" }
     }
 
+    private var hasContent: Bool {
+        !NoteText.trimmed(textView.source).isEmpty || !attachments.isEmpty
+    }
+
+    /// Kept until the note is sent or thrown away; nothing to keep removes it.
+    private func saveDraft() {
+        guard !isDraftDone, restoredDraft == nil else { return }
+        guard hasContent else {
+            drafts.remove()
+            return
+        }
+        drafts.save(ComposeDraft(text: textView.source, visibility: visibility.rawValue, quote: quote,
+                                 attachments: attachments.compactMap(\.saved)))
+    }
+
+    private func discardDraft() {
+        isDraftDone = true
+        drafts.remove()
+    }
+
     private func cancelTapped() {
-        let hasContent = !NoteText.trimmed(textView.source).isEmpty || !attachments.isEmpty
         guard hasContent else {
             close()
             return
         }
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: "破棄", style: .destructive) { [weak self] _ in self?.close() })
+        sheet.addAction(UIAlertAction(title: "破棄", style: .destructive) { [weak self] _ in
+            self?.discardDraft()
+            self?.close()
+        })
+        sheet.addAction(UIAlertAction(title: "下書きを保存", style: .default) { [weak self] _ in self?.close() })
         sheet.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
         sheet.popoverPresentationController?.sourceView = cancelButton
         present(sheet, animated: true)

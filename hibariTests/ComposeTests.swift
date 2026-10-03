@@ -229,7 +229,7 @@ struct ComposeTextViewTests {
 
 @Suite("Photo uploads")
 struct ImageUploadPreparationTests {
-    private func image(width: Int, height: Int, type: UTType, properties: [CFString: Any] = [:]) throws -> Data {
+    func image(width: Int, height: Int, type: UTType, properties: [CFString: Any] = [:]) throws -> Data {
         let context = try #require(Bitmap.makeContext(width: width, height: height, opaque: true))
         context.setFillColor(CGColor(red: 0.9, green: 0.4, blue: 0.1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
@@ -331,5 +331,93 @@ struct PostingAPITests {
         #expect(body == "--\(boundary)\r\nContent-Disposition: form-data; name=\"i\"\r\n\r\ntoken\r\n"
             + "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a%22b.jpg\"\r\n"
             + "Content-Type: image/jpeg\r\n\r\nDATA\r\n--\(boundary)--\r\n")
+    }
+}
+
+@Suite("Compose drafts")
+struct ComposeDraftTests {
+    private func quote() throws -> Note {
+        try MisskeyJSON.decoder().decode(Note.self, from: JSONSerialization.data(withJSONObject: TestData.note(id: "q1")))
+    }
+
+    private func file(_ id: String) throws -> DriveFile {
+        try MisskeyJSON.decoder().decode(DriveFile.self, from: JSONSerialization.data(withJSONObject: [
+            "id": id, "type": "image/jpeg", "name": "a.jpg", "isSensitive": false, "properties": [:],
+        ] as [String: Any]))
+    }
+
+    private func attachment(_ id: UUID = UUID(), file: DriveFile? = nil) -> ComposeDraft.Attachment {
+        ComposeDraft.Attachment(id: id, name: "IMG_0001", mimeType: "image/jpeg", fileExtension: "jpg",
+                                width: 300, height: 400, file: file)
+    }
+
+    @Test func aDraftComesBackAsSaved() throws {
+        let root = TestData.temporaryDirectory()
+        let store = ComposeDraftStore(accountID: "a", slot: .note, root: root)
+        #expect(store.load() == nil)
+        store.save(ComposeDraft(text: "書きかけ :blobcat:\n", visibility: "home", quote: try quote(),
+                                attachments: [attachment(file: try file("f1"))]))
+        let draft = try #require(store.load())
+        #expect(draft.text == "書きかけ :blobcat:\n" && draft.visibility == "home" && draft.quote?.id == "q1")
+        #expect(draft.attachments.map(\.file?.id) == ["f1"])
+        #expect(draft.attachments.first?.pixelSize == CGSize(width: 300, height: 400))
+
+        store.remove()
+        #expect(store.load() == nil)
+    }
+
+    @Test func eachSlotAndAccountHasItsOwn() {
+        let root = TestData.temporaryDirectory()
+        let slots: [ComposeDraftStore.Slot] = [.note, .reply(noteID: "n1"), .reply(noteID: "n2"), .quote(noteID: "n1"),
+                                               .direct(userID: "u1")]
+        for (index, slot) in slots.enumerated() {
+            ComposeDraftStore(accountID: "a", slot: slot, root: root)
+                .save(ComposeDraft(text: "\(index)", visibility: "public", attachments: []))
+        }
+        for (index, slot) in slots.enumerated() {
+            #expect(ComposeDraftStore(accountID: "a", slot: slot, root: root).load()?.text == "\(index)")
+            #expect(ComposeDraftStore(accountID: "b", slot: slot, root: root).load() == nil)
+        }
+        ComposeDraftStore.removeAll(accountID: "a", root: root)
+        #expect(ComposeDraftStore(accountID: "a", slot: .note, root: root).load() == nil)
+    }
+
+    @Test func imagesOfRemovedPhotosGo() throws {
+        let store = ComposeDraftStore(accountID: "a", slot: .note, root: TestData.temporaryDirectory())
+        let kept = UUID(), removed = UUID()
+        store.saveImage(Data([1]), for: kept)
+        store.saveImage(Data([2]), for: removed)
+        store.save(ComposeDraft(text: "", visibility: "public", attachments: [attachment(kept), attachment(removed)]))
+        store.save(ComposeDraft(text: "", visibility: "public", attachments: [attachment(kept)]))
+        store.flush()
+        #expect(try Data(contentsOf: store.imageURL(for: kept)) == Data([1]))
+        #expect(!FileManager.default.fileExists(atPath: store.imageURL(for: removed).path(percentEncoded: false)))
+    }
+
+    @Test func aRestoredImageIsNotPreparedAgain() async throws {
+        let store = ComposeDraftStore(accountID: "a", slot: .note, root: TestData.temporaryDirectory())
+        let saved = attachment()
+        let jpeg = try ImageUploadPreparation.prepare(
+            try ImageUploadPreparationTests().image(width: 300, height: 400, type: .jpeg)).data
+        store.saveImage(jpeg, for: saved.id)
+        store.flush()
+        let (prepared, thumbnail) = try await ImageUploadPreparation.restoreInBackground(
+            saved, from: store.imageURL(for: saved.id), thumbnailSize: 100)
+        #expect(prepared.data == jpeg && prepared.mimeType == "image/jpeg" && prepared.fileExtension == "jpg")
+        #expect(thumbnail.map { max($0.width, $0.height) } == 100)
+    }
+
+    @MainActor
+    @Test func aRestoredUploadedPhotoIsNotUploadedAgain() async throws {
+        let urlSession = StubURLProtocol.session { request, _ in
+            Issue.record("unexpected request to \(request.url?.path ?? "")")
+            return .json([:])
+        }
+        let client = MisskeyClient(server: TestData.server, token: "T", session: urlSession)
+        let saved = attachment(file: try file("f1"))
+        let restored = ComposeAttachment(restoring: saved, from: URL(filePath: "/nonexistent"), client: client)
+        #expect(restored.id == saved.id && restored.state == .uploaded && restored.aspectRatio == 0.75)
+        #expect(try await restored.file().id == "f1")
+        #expect(restored.saved?.file?.id == "f1")
     }
 }

@@ -71,21 +71,31 @@ enum ImageUploadPreparation {
 
     /// `prepare` and a thumbnail, off the main thread.
     static func prepareInBackground(_ data: Data, thumbnailSize: Int) async throws -> (PreparedImage, CGImage?) {
+        try await inBackground {
+            let prepared = try prepare(data)
+            return (prepared, thumbnail(of: prepared.data, maxPixelSize: thumbnailSize))
+        }
+    }
+
+    /// A draft's image, prepared before, read back with a thumbnail off the main thread.
+    static func restoreInBackground(_ saved: ComposeDraft.Attachment, from url: URL,
+                                    thumbnailSize: Int) async throws -> (PreparedImage, CGImage?) {
+        try await inBackground {
+            let prepared = PreparedImage(data: try Data(contentsOf: url), mimeType: saved.mimeType,
+                                         fileExtension: saved.fileExtension, pixelSize: saved.pixelSize)
+            return (prepared, thumbnail(of: prepared.data, maxPixelSize: thumbnailSize))
+        }
+    }
+
+    private static func inBackground<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                do {
-                    let prepared = try prepare(data)
-                    continuation.resume(returning: (prepared, thumbnail(of: prepared.data, maxPixelSize: thumbnailSize)))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+            queue.async { continuation.resume(with: Result(catching: work)) }
         }
     }
 }
 
 /// A photo attached to the note being written. It uploads as soon as it is picked; the
-/// note waits for it when sent.
+/// note waits for it when sent. Once prepared, a draft keeps it (`saved`).
 @MainActor
 final class ComposeAttachment {
     enum State: Equatable {
@@ -96,27 +106,56 @@ final class ComposeAttachment {
         case failed
     }
 
-    let id = UUID()
+    let id: UUID
     private(set) var state = State.preparing {
         didSet { if state != oldValue { onChange?() } }
     }
     private(set) var thumbnail: UIImage?
     /// Width / height (1 until known).
     private(set) var aspectRatio: CGFloat = 1
+    /// What a draft keeps of it: nil until the image is prepared, with the file once
+    /// uploaded.
+    private(set) var saved: ComposeDraft.Attachment?
     var onChange: (() -> Void)?
+    /// The image was just prepared (not for one restored from a draft, prepared before).
+    var onPrepare: ((PreparedImage) -> Void)?
 
     private let client: MisskeyClient
     private let name: String
-    private let load: @Sendable () async throws -> Data
+    private let prepare: @Sendable () async throws -> (PreparedImage, CGImage?)
     private var prepared: PreparedImage?
     private var upload: Task<DriveFile, any Error>?
 
+    private static let thumbnailSize = 900
+
     /// `name` without an extension (the photo's file name); the prepared image's goes on.
     init(name: String, client: MisskeyClient, load: @escaping @Sendable () async throws -> Data) {
+        id = UUID()
         self.name = name
         self.client = client
-        self.load = load
+        prepare = { try await ImageUploadPreparation.prepareInBackground(try await load(), thumbnailSize: Self.thumbnailSize) }
         start()
+    }
+
+    /// One a draft kept, its prepared image at `url`. It uploads unless it had.
+    init(restoring saved: ComposeDraft.Attachment, from url: URL, client: MisskeyClient) {
+        id = saved.id
+        name = saved.name
+        self.client = client
+        self.saved = saved
+        aspectRatio = saved.width / max(1, saved.height)
+        prepare = { try await ImageUploadPreparation.restoreInBackground(saved, from: url, thumbnailSize: Self.thumbnailSize) }
+        guard let file = saved.file else {
+            start()
+            return
+        }
+        state = .uploaded
+        upload = Task { file }
+        Task { [weak self, prepare] in
+            guard let thumbnail = try? await prepare().1, let self else { return }
+            self.thumbnail = UIImage(cgImage: thumbnail)
+            self.onChange?()
+        }
     }
 
     convenience init(_ provider: NSItemProvider, client: MisskeyClient) {
@@ -156,13 +195,12 @@ final class ComposeAttachment {
 
     private func start() {
         state = prepared == nil ? .preparing : .uploading(0)
-        let task = Task { [weak self, client, name, load] () async throws -> DriveFile in
+        let task = Task { [weak self, client, name, prepare] () async throws -> DriveFile in
             let prepared: PreparedImage
             if let ready = self?.prepared {
                 prepared = ready
             } else {
-                let (image, thumbnail) = try await ImageUploadPreparation.prepareInBackground(try await load(),
-                                                                                             thumbnailSize: 900)
+                let (image, thumbnail) = try await prepare()
                 prepared = image
                 self?.didPrepare(image, thumbnail: thumbnail)
             }
@@ -175,8 +213,9 @@ final class ComposeAttachment {
         upload = task
         Task { [weak self] in
             do {
-                _ = try await task.value
+                let file = try await task.value
                 guard let self, self.upload == task else { return }
+                self.saved?.file = file
                 self.state = .uploaded
                 self.prepared = nil
             } catch {
@@ -190,6 +229,12 @@ final class ComposeAttachment {
         prepared = image
         aspectRatio = image.pixelSize.width / max(1, image.pixelSize.height)
         self.thumbnail = thumbnail.map { UIImage(cgImage: $0) }
+        if saved == nil {
+            saved = ComposeDraft.Attachment(id: id, name: name, mimeType: image.mimeType,
+                                            fileExtension: image.fileExtension, width: image.pixelSize.width,
+                                            height: image.pixelSize.height)
+            onPrepare?(image)
+        }
         state = .uploading(0)
         onChange?()
     }

@@ -268,11 +268,8 @@ final class RootViewController: UIViewController {
             search?.focusSearchField()
         } else if selectedTab == .profile {
             profile?.scrollToTop()
-        } else if selectedTab == .home {
-            home.refreshOrScrollToTop()
         } else {
-            selectedPager?.scrollToTop()
-            if selectedTab == .notifications { refreshNotifications() }
+            selectedPager?.refreshOrScrollToTop()
         }
     }
 

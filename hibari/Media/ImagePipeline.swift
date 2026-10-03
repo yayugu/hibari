@@ -254,7 +254,7 @@ final class ImagePipeline: MediaSizeProvider, @unchecked Sendable {
         let loads = Task {
             await withTaskGroup(of: Void.self) { group in
                 for url in unknown {
-                    group.addTask { await self.prepareSize(of: url) }
+                    group.addTask { _ = await self.prepareSize(of: url) }
                 }
             }
         }

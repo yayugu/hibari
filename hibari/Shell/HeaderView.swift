@@ -218,7 +218,7 @@ extension TabStripView: UIScrollViewDelegate {
 enum TabIndicator {
     static let height: CGFloat = 2
 
-    static func make() -> UIView {
+    @MainActor static func make() -> UIView {
         let view = UIView()
         view.backgroundColor = .hibari(.primaryText)
         view.layer.cornerRadius = height / 2

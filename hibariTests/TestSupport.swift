@@ -43,13 +43,14 @@ enum Samples {
         allNotes.first(where: predicate)
     }
 
-    static func makeNote(text: String, cw: String? = nil) throws -> Note {
+    static func makeNote(text: String, cw: String? = nil, poll: [String: Any]? = nil) throws -> Note {
         let object: [String: Any?] = [
             "id": "synthetic-\(UUID().uuidString)",
             "createdAt": "2026-09-23T15:00:00.000Z",
             "user": ["id": "u", "username": "tester", "name": "テスター"],
             "text": text,
             "cw": cw,
+            "poll": poll,
         ]
         let data = try JSONSerialization.data(withJSONObject: object.compactMapValues { $0 })
         return try MisskeyJSON.decoder().decode(Note.self, from: data)

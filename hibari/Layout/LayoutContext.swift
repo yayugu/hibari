@@ -79,6 +79,8 @@ struct NoteDisplayState: Hashable, Sendable {
     var cwExpanded = false
     var textExpanded = false
     var sensitiveRevealed = false
+    /// The poll shows its results before the account voted.
+    var pollResultsShown = false
     var thread: ThreadLinks = []
 }
 
@@ -96,9 +98,11 @@ struct LayoutKey: Hashable, Sendable {
     let context: LayoutContext
 
     /// Whether going from `old` to this key changes something that must show right away
-    /// (the note's content, its display state, the context), rather than only something
-    /// that changes by itself (time styles), which waits until the note is off screen.
+    /// (the note's content, its display state, the context, a poll that ended and takes no
+    /// more votes), rather than only something that changes by itself (time styles), which
+    /// waits until the note is off screen.
     func requiresImmediateRelayout(from old: LayoutKey) -> Bool {
         noteID != old.noteID || contentHash != old.contentHash || state != old.state || context != old.context
+            || timeStyles.pollClosed != old.timeStyles.pollClosed
     }
 }

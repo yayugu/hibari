@@ -66,6 +66,34 @@ struct ModelTests {
         #expect(poll([]).voteRatios.isEmpty)
     }
 
+    @Test func pollsTakeOneVotePerChoiceUntilTheyEnd() {
+        func poll(_ voted: [Bool?], multiple: Bool = false) -> Poll {
+            Poll(multiple: multiple, expiresAt: nil,
+                 choices: voted.map { Poll.Choice(text: "choice", votes: $0 == true ? 1 : 0, isVoted: $0) })
+        }
+        let fresh = poll([false, false])
+        #expect(fresh.canVote(for: 0, closed: false) && fresh.canVote(for: 1, closed: false))
+        #expect(!fresh.canVote(for: 2, closed: false))
+        #expect(!fresh.canVote(closed: true), "an ended poll takes no votes")
+        #expect(!fresh.showsResults(peeking: false, closed: false))
+        #expect(fresh.showsResults(peeking: true, closed: false))
+        #expect(fresh.showsResults(peeking: false, closed: true))
+
+        let voted = fresh.voting(for: 1)
+        #expect(voted.choices.map(\.isVoted) == [false, true] && voted.choices.map(\.votes) == [0, 1])
+        #expect(voted.showsResults(peeking: false, closed: false))
+        #expect(!voted.canVote(closed: false), "a single-choice poll takes one vote")
+
+        let multiple = poll([true, false, false], multiple: true)
+        #expect(!multiple.canVote(for: 0, closed: false) && multiple.canVote(for: 1, closed: false))
+        #expect(!multiple.voting(for: 1).voting(for: 2).canVote(closed: false))
+        #expect(multiple.voting(for: 0).choices[0].votes == 1, "a choice voted for does not count twice")
+
+        let unknown = poll([nil, nil])
+        #expect(!unknown.canVote(closed: false), "without the account's votes, nothing is votable")
+        #expect(unknown.showsResults(peeking: false, closed: false))
+    }
+
     @Test func renoteKinds() throws {
         let target = note(#""text":"original""#)
         let notes = try decode([

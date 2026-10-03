@@ -47,6 +47,10 @@ enum NoteTapAction: Hashable, Sendable {
     case revealSensitive
     case toggleCW
     case expandText
+    /// The poll choice at this index.
+    case vote(Int)
+    /// "結果を見る" / "投票する" under a poll the account can vote in.
+    case togglePollResults
     case quote
     /// A reaction chip (its key in `note.reactions`).
     case reaction(String)

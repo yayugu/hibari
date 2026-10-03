@@ -81,6 +81,8 @@ final class NoteDetailViewController: UIViewController {
                                                name: RenoteController.didChange, object: services.renotes)
         NotificationCenter.default.addObserver(self, selector: #selector(noteDidChange(_:)),
                                                name: BookmarkController.didChange, object: services.bookmarks)
+        NotificationCenter.default.addObserver(self, selector: #selector(noteDidChange(_:)),
+                                               name: PollController.didChange, object: services.polls)
         NotificationCenter.default.addObserver(self, selector: #selector(mediaSizesDidChange),
                                                name: ImagePipeline.mediaSizesDidChange, object: services.imagePipeline)
         NotificationCenter.default.addObserver(self, selector: #selector(rendererDidRedraw(_:)),

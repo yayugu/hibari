@@ -454,6 +454,84 @@ struct ReactionControllerTests {
     }
 }
 
+@Suite("Poll controller")
+@MainActor
+struct PollControllerTests {
+    private func controller(log: Locked<[String]>, failing: Bool = false,
+                            serverPoll: [String: Any]? = nil) -> PollController {
+        var serverNote = TestData.note(id: "n1")
+        serverNote["poll"] = serverPoll
+        let serverData = try! JSONSerialization.data(withJSONObject: serverNote)
+        let session = StubURLProtocol.session { request, body in
+            let endpoint = request.url!.path().replacingOccurrences(of: "/api/", with: "")
+            log.withLock { $0.append([endpoint, (body["choice"] as? Int).map(String.init)].compactMap { $0 }.joined(separator: " ")) }
+            if endpoint == "notes/show" { return StubURLProtocol.Response(body: serverData) }
+            if failing { return .json(["error": ["code": "INTERNAL_ERROR", "message": "boom"]], status: 500) }
+            return StubURLProtocol.Response(status: 204)
+        }
+        return PollController(client: MisskeyClient(server: TestData.server, token: "T", session: session))
+    }
+
+    private static func poll(_ voted: [Bool], multiple: Bool = false) -> [String: Any] {
+        ["multiple": multiple, "expiresAt": NSNull(),
+         "choices": voted.map { ["text": "c", "votes": $0 ? 1 : 0, "isVoted": $0] }]
+    }
+
+    private func note(_ poll: [String: Any]) throws -> Note {
+        var object = TestData.note(id: "n1")
+        object["poll"] = poll
+        return try MisskeyJSON.decoder().decode(Note.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
+    private func changes(count: Int, during body: () -> Void) async throws -> [PollChange] {
+        let received = Locked<[PollChange]>([])
+        let observer = NotificationCenter.default.addObserver(forName: PollController.didChange, object: nil,
+                                                              queue: nil) { notification in
+            if let change = notification.userInfo?["change"] as? PollChange {
+                received.withLock { $0.append(change) }
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        body()
+        for _ in 0..<200 where received.withLock({ $0.count }) < count {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        return received.withLock { $0 }
+    }
+
+    @Test func votingShowsAtOnceAndSendsTheChoice() async throws {
+        let log = Locked<[String]>([])
+        let controller = controller(log: log)
+        let note = try note(Self.poll([false, false]))
+        let posted = try await changes(count: 1) { #expect(controller.vote(for: 1, in: note)) }
+        #expect(posted.first?.poll.choices.map(\.isVoted) == [false, true])
+        #expect(!controller.vote(for: 0, in: note), "a single-choice poll takes one vote, also while it is sent")
+        for _ in 0..<100 where log.withLock({ $0.isEmpty }) { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(log.withLock { $0 } == ["notes/polls/vote 1"])
+    }
+
+    @Test func aMultipleChoicePollTakesTheOtherChoices() async throws {
+        let log = Locked<[String]>([])
+        let controller = controller(log: log)
+        let note = try note(Self.poll([false, false, false], multiple: true))
+        _ = try await changes(count: 2) {
+            controller.vote(for: 0, in: note)
+            controller.vote(for: 2, in: note)
+        }
+        #expect(controller.poll(of: note)?.choices.map(\.isVoted) == [true, false, true])
+        for _ in 0..<100 where log.withLock({ $0.count }) < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(log.withLock { $0 } == ["notes/polls/vote 0", "notes/polls/vote 2"])
+    }
+
+    @Test func aFailedVoteShowsTheServersPoll() async throws {
+        let log = Locked<[String]>([])
+        let controller = controller(log: log, failing: true, serverPoll: Self.poll([false, false]))
+        let note = try note(Self.poll([false, false]))
+        let posted = try await changes(count: 2) { controller.vote(for: 0, in: note) }
+        #expect(posted.map { $0.poll.hasVoted } == [true, false])
+    }
+}
+
 @Suite("Note API")
 struct NoteAPITests {
     @Test func repliesPageForwardFromTheNote() async throws {

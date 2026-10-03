@@ -89,6 +89,8 @@ struct TimeSlot: Sendable {
 struct TimeStyles: Hashable, Sendable {
     let created: ElapsedStyle
     let quoted: ElapsedStyle?
+    /// The note's poll has ended: it takes no more votes.
+    let pollClosed: Bool
 
     init(for item: TimelineItem, now: Date) {
         switch item.content {
@@ -96,9 +98,11 @@ struct TimeStyles: Hashable, Sendable {
             let note = outer.displayedNote
             created = RelativeTime.style(for: note.createdAt, now: now)
             quoted = note.renote.map { RelativeTime.style(for: $0.createdAt, now: now) }
+            pollClosed = note.poll?.isClosed(at: now) ?? false
         case .notification(let notification):
             created = RelativeTime.style(for: notification.createdAt, now: now)
             quoted = nil
+            pollClosed = false
         }
     }
 }

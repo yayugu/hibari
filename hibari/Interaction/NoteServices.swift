@@ -11,6 +11,7 @@ final class NoteServices {
     let recentReactions: RecentReactions
     let renotes: RenoteController
     let bookmarks: BookmarkController
+    let polls: PollController
     let renderer: NoteRenderer
     let imagePipeline: ImagePipeline
     let account: Account
@@ -39,6 +40,7 @@ final class NoteServices {
         reactions = ReactionController(client: session.client, emojis: session.emojis, recentReactions: recentReactions)
         renotes = RenoteController(accountUserID: session.account.userID)
         bookmarks = BookmarkController(client: session.client)
+        polls = PollController(client: session.client)
         self.renderer = renderer
         self.imagePipeline = imagePipeline
     }
@@ -208,6 +210,11 @@ extension NoteServices {
         } catch {
             Toast.show(error.message)
         }
+    }
+
+    func vote(for index: Int, in note: Note) {
+        guard polls.vote(for: index, in: note) else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
     func compose(reply: Note? = nil, quote: Note? = nil, to recipient: User? = nil, from controller: UIViewController) {

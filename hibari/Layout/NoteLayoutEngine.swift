@@ -372,9 +372,10 @@ struct NoteLayoutBuilder {
             }
 
             if let poll = note.poll {
-                let (ops, height, time) = pollBlock(poll, note: note, width: contentWidth)
+                let (ops, height, time, pollTargets) = pollBlock(poll, note: note, width: contentWidth)
                 let t = top(m.blockSpacing)
                 addBlock(CGRect(x: contentX, y: t, width: contentWidth, height: height), ops, time: time)
+                targets += pollTargets.map { TapTarget(frame: $0.frame.offsetBy(dx: contentX, dy: t), action: $0.action) }
                 cursor = t + height
                 placed = true
             }
@@ -637,22 +638,36 @@ struct NoteLayoutBuilder {
         return height
     }
 
-    private func pollBlock(_ poll: Poll, note: Note, width: CGFloat) -> ([DrawOp], CGFloat, TimePlacement?) {
+    /// The choices take votes until the account voted (one, or all for a `multiple`
+    /// poll) or the poll ended; until it voted, they show no results unless it asks with
+    /// "結果を見る" at the end of the footer. Targets are relative to the block.
+    private func pollBlock(_ poll: Poll, note: Note, width: CGFloat)
+        -> ([DrawOp], CGFloat, TimePlacement?, [TapTarget]) {
+        let closed = key.timeStyles.pollClosed
+        let showsResults = poll.showsResults(peeking: item.state.pollResultsShown, closed: closed)
         let ratios = poll.voteRatios
         let rowHeight = (smallMetrics.lineHeight + 16).rounded()
         var ops: [DrawOp] = []
+        var targets: [TapTarget] = []
         var y: CGFloat = 0
-        for (choice, voteRatio) in zip(poll.choices, ratios) {
+        for (index, (choice, voteRatio)) in zip(poll.choices, ratios).enumerated() {
             let rect = CGRect(x: 0, y: y, width: width, height: rowHeight)
-            ops.append(.roundedRect(rect, radius: 8, fill: .chipBackground, stroke: nil))
-            let ratio = CGFloat(voteRatio)
-            if ratio > 0 {
-                ops.append(.roundedRect(CGRect(x: 0, y: y, width: max(16, width * ratio), height: rowHeight),
-                                        radius: 8, fill: .chipReactedBackground, stroke: nil))
+            var percentWidth: CGFloat = 0
+            if showsResults {
+                ops.append(.roundedRect(rect, radius: 8, fill: .chipBackground, stroke: nil))
+                let ratio = CGFloat(voteRatio)
+                if ratio > 0 {
+                    ops.append(.roundedRect(CGRect(x: 0, y: y, width: max(16, width * ratio), height: rowHeight),
+                                            radius: 8, fill: .chipReactedBackground, stroke: nil))
+                }
+                let percent = TextLayout.singleLine(
+                    plain("\(Int((ratio * 100).rounded()))%", font: typography.smallBold, role: .secondaryText),
+                    metrics: smallMetrics)
+                ops.append(.text(percent, origin: CGPoint(x: width - 12 - percent.size.width, y: y + 8)))
+                percentWidth = percent.size.width
+            } else {
+                ops.append(.roundedRect(rect.insetBy(dx: 0.5, dy: 0.5), radius: 8, fill: nil, stroke: .border))
             }
-            let percent = TextLayout.singleLine(
-                plain("\(Int((ratio * 100).rounded()))%", font: typography.smallBold, role: .secondaryText),
-                metrics: smallMetrics)
             var labelX: CGFloat = 12
             if choice.isVoted == true {
                 ops.append(.icon(.check, rect: CGRect(x: 10, y: y + (rowHeight - 16) / 2, width: 16, height: 16), color: .accent))
@@ -661,9 +676,11 @@ struct NoteLayoutBuilder {
             let label = TextLayout.singleLine(
                 richText(choice.text, .text(of: note), font: typography.small, role: .primaryText)
                     .firstLine(),
-                maxWidth: width - labelX - percent.size.width - 20, metrics: smallMetrics)
+                maxWidth: width - labelX - percentWidth - 20, metrics: smallMetrics)
             ops.append(.text(label, origin: CGPoint(x: labelX, y: y + 8)))
-            ops.append(.text(percent, origin: CGPoint(x: width - 12 - percent.size.width, y: y + 8)))
+            if poll.canVote(for: index, closed: closed) {
+                targets.append(TapTarget(frame: rect, action: .vote(index)))
+            }
             y += rowHeight + 6
         }
         let footerMetrics = typography.lineMetrics(for: typography.caption)
@@ -676,7 +693,15 @@ struct NoteLayoutBuilder {
                           reservedWidth: TimeSlot.reservedWidth(for: .remaining, prefix: Self.timePrefix, fontSize: fontSize),
                           metrics: footerMetrics, fontSize: fontSize)
         }
-        return (ops, y + footerMetrics.lineHeight, time)
+        if !poll.hasVoted && poll.canVote(closed: closed) {
+            let toggle = TextLayout.singleLine(
+                plain(showsResults ? "投票する" : "結果を見る", font: typography.caption, role: .secondaryText),
+                metrics: footerMetrics)
+            let frame = CGRect(origin: CGPoint(x: width - toggle.size.width, y: y), size: toggle.size)
+            ops.append(.text(toggle, origin: frame.origin))
+            targets.append(TapTarget(frame: frame.insetBy(dx: -10, dy: -8), action: .togglePollResults))
+        }
+        return (ops, y + footerMetrics.lineHeight, time, targets)
     }
 
     private func reactionsBlock(_ note: Note, width: CGFloat) -> ([DrawOp], CGFloat, [(String, CGRect)]) {

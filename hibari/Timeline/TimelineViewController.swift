@@ -190,6 +190,8 @@ final class TimelineViewController: UIViewController {
                                                name: RenoteController.didChange, object: services.renotes)
         NotificationCenter.default.addObserver(self, selector: #selector(noteDidChange(_:)),
                                                name: BookmarkController.didChange, object: services.bookmarks)
+        NotificationCenter.default.addObserver(self, selector: #selector(noteDidChange(_:)),
+                                               name: PollController.didChange, object: services.polls)
         NotificationCenter.default.addObserver(self, selector: #selector(didDeleteNote(_:)),
                                                name: NoteServices.didDeleteNote, object: services)
         NotificationCenter.default.addObserver(self, selector: #selector(didHideUser(_:)),

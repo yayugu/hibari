@@ -228,64 +228,142 @@ private final class FileRow: UIControl {
     }
 }
 
+/// A poll: choices take votes until the account voted (one, or all for a `multiple` poll)
+/// or the poll ended. Until it voted, results show only when it asks ("結果を見る").
 final class PollView: UIView {
-    private var rows: [(background: UIView, fill: UIView, label: UILabel, percent: UILabel)] = []
+    /// The choice at this index was tapped to vote.
+    var onVote: ((Int) -> Void)?
+    /// "結果を見る" / "投票する" was tapped.
+    var onToggleResults: (() -> Void)?
+
+    private var rows: [PollRow] = []
     private let footer = UILabel()
-    private var ratios: [CGFloat] = []
+    private let toggle = UIButton(type: .system)
     private static let rowHeight: CGFloat = 38
     private static let rowSpacing: CGFloat = 6
+    private static let footerHeight: CGFloat = 18
 
-    func configure(_ poll: Poll, text: (String) -> NSAttributedString) {
-        rows.forEach { $0.background.removeFromSuperview() }
-        rows = []
-        ratios = poll.voteRatios.map { CGFloat($0) }
-        for (choice, ratio) in zip(poll.choices, ratios) {
-            let background = UIView()
-            background.backgroundColor = .hibari(.chipBackground)
-            background.layer.cornerRadius = 8
-            background.clipsToBounds = true
-            let fill = UIView()
-            fill.backgroundColor = .hibari(.chipReactedBackground)
-            background.addSubview(fill)
-            let label = UILabel()
-            label.attributedText = text(choice.isVoted == true ? "✓ \(choice.text)" : choice.text)
-            label.lineBreakMode = .byTruncatingTail
-            background.addSubview(label)
-            let percent = UILabel()
-            percent.font = .systemFont(ofSize: 14, weight: .semibold)
-            percent.textColor = .hibari(.secondaryText)
-            percent.text = "\(Int((ratio * 100).rounded()))%"
-            background.addSubview(percent)
-            addSubview(background)
-            rows.append((background, fill, label, percent))
-        }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
         footer.font = .systemFont(ofSize: 13)
         footer.textColor = .hibari(.secondaryText)
+        addSubview(footer)
+        toggle.titleLabel?.font = .systemFont(ofSize: 13)
+        toggle.setTitleColor(.hibari(.secondaryText), for: .normal)
+        toggle.accessibilityIdentifier = "noteDetail.pollResults"
+        toggle.addAction(UIAction { [weak self] _ in self?.onToggleResults?() }, for: .touchUpInside)
+        addSubview(toggle)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// `peeking`: the account asked to see the results before voting.
+    func configure(_ poll: Poll, peeking: Bool, now: Date = Date(), text: (String) -> NSAttributedString) {
+        rows.forEach { $0.removeFromSuperview() }
+        let closed = poll.isClosed(at: now)
+        let showsResults = poll.showsResults(peeking: peeking, closed: closed)
+        rows = zip(poll.choices, poll.voteRatios).enumerated().map { index, entry in
+            let (choice, ratio) = entry
+            let row = PollRow(text: text(choice.isVoted == true ? "✓ \(choice.text)" : choice.text),
+                              ratio: showsResults ? CGFloat(ratio) : nil,
+                              votable: poll.canVote(for: index, closed: closed))
+            row.accessibilityIdentifier = "noteDetail.poll.\(index)"
+            row.addAction(UIAction { [weak self] _ in self?.onVote?(index) }, for: .touchUpInside)
+            insertSubview(row, belowSubview: footer)
+            return row
+        }
         var summary = "\(poll.voteTotal)票"
         if let expiresAt = poll.expiresAt {
-            let remaining = expiresAt.timeIntervalSinceNow
+            let remaining = expiresAt.timeIntervalSince(now)
             summary += remaining > 0 ? " · 残り\(RelativeTime.duration(remaining))" : " · 終了"
         }
         footer.text = summary
-        addSubview(footer)
+        toggle.isHidden = poll.hasVoted || !poll.canVote(closed: closed)
+        toggle.setTitle(showsResults ? "投票する" : "結果を見る", for: .normal)
         setNeedsLayout()
     }
 
     var height: CGFloat {
-        CGFloat(rows.count) * (Self.rowHeight + Self.rowSpacing) + 18
+        CGFloat(rows.count) * (Self.rowHeight + Self.rowSpacing) + Self.footerHeight
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         var y: CGFloat = 0
-        for (row, ratio) in zip(rows, ratios) {
-            row.background.frame = CGRect(x: 0, y: y, width: bounds.width, height: Self.rowHeight)
-            row.fill.frame = CGRect(x: 0, y: 0, width: ratio > 0 ? max(16, bounds.width * ratio) : 0, height: Self.rowHeight)
-            let percentWidth = row.percent.intrinsicContentSize.width
-            row.percent.frame = CGRect(x: bounds.width - 12 - percentWidth, y: 0, width: percentWidth, height: Self.rowHeight)
-            row.label.frame = CGRect(x: 12, y: 0, width: row.percent.frame.minX - 20, height: Self.rowHeight)
+        for row in rows {
+            row.frame = CGRect(x: 0, y: y, width: bounds.width, height: Self.rowHeight)
             y += Self.rowHeight + Self.rowSpacing
         }
-        footer.frame = CGRect(x: 0, y: y, width: bounds.width, height: 18)
+        let toggleWidth = toggle.isHidden ? 0 : toggle.intrinsicContentSize.width
+        toggle.frame = CGRect(x: bounds.width - toggleWidth, y: y - 8, width: toggleWidth, height: Self.footerHeight + 16)
+        footer.frame = CGRect(x: 0, y: y, width: bounds.width - toggleWidth - 8, height: Self.footerHeight)
+    }
+}
+
+/// A poll choice: outlined while it takes votes and the results are hidden, filled up to
+/// its share of the votes once they show (`ratio`).
+private final class PollRow: UIControl {
+    private let fill = UIView()
+    private let label = UILabel()
+    private let percent = UILabel()
+    private let ratio: CGFloat?
+    private let votable: Bool
+
+    init(text: NSAttributedString, ratio: CGFloat?, votable: Bool) {
+        self.ratio = ratio
+        self.votable = votable
+        super.init(frame: .zero)
+        layer.cornerRadius = 8
+        clipsToBounds = true
+        isEnabled = votable
+        if ratio != nil {
+            backgroundColor = .hibari(.chipBackground)
+            fill.backgroundColor = .hibari(.chipReactedBackground)
+            fill.isUserInteractionEnabled = false
+            addSubview(fill)
+            percent.font = .systemFont(ofSize: 14, weight: .semibold)
+            percent.textColor = .hibari(.secondaryText)
+            percent.text = "\(Int(((ratio ?? 0) * 100).rounded()))%"
+            addSubview(percent)
+        } else {
+            layer.borderWidth = 1
+            updateBorderColor()
+            registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in self.updateBorderColor() }
+        }
+        label.attributedText = text
+        label.lineBreakMode = .byTruncatingTail
+        addSubview(label)
+        isAccessibilityElement = true
+        accessibilityLabel = [text.string, ratio == nil ? nil : percent.text].compactMap { $0 }.joined(separator: " ")
+        accessibilityTraits = votable ? .button : .staticText
+        if votable { accessibilityHint = "投票します" }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func updateBorderColor() {
+        layer.borderColor = UIColor.hibari(.border).resolvedColor(with: traitCollection).cgColor
+    }
+
+    override var isHighlighted: Bool {
+        didSet {
+            guard votable, isHighlighted != oldValue else { return }
+            let base: UIColor = ratio == nil ? .clear : .hibari(.chipBackground)
+            UIView.animate(withDuration: isHighlighted ? 0 : 0.2, delay: 0, options: [.allowUserInteraction]) {
+                self.backgroundColor = self.isHighlighted ? .hibari(.border) : base
+                self.transform = self.isHighlighted ? CGAffineTransform(scaleX: 0.98, y: 0.98) : .identity
+            }
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let ratio = ratio ?? 0
+        fill.frame = CGRect(x: 0, y: 0, width: ratio > 0 ? max(16, bounds.width * ratio) : 0, height: bounds.height)
+        let percentWidth = self.ratio == nil ? 0 : percent.intrinsicContentSize.width
+        percent.frame = CGRect(x: bounds.width - 12 - percentWidth, y: 0, width: percentWidth, height: bounds.height)
+        label.frame = CGRect(x: 12, y: 0, width: max(0, bounds.width - 12 - percentWidth - 20), height: bounds.height)
     }
 }

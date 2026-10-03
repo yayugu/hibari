@@ -47,6 +47,7 @@ final class FocusedNoteView: UIView {
 
     private let services: NoteServices
     private var cwExpanded = false
+    private var pollResultsShown = false
     private lazy var sensitiveRevealed = services.sensitiveMedia == .show
     private var provisionalEmojis: Set<String> = []
     private var emojiReloadPending = false
@@ -122,6 +123,16 @@ final class FocusedNoteView: UIView {
         addSubview(media)
         files.onTap = { [weak self] in self?.onLink?($0) }
         addSubview(files)
+        poll.onVote = { [weak self] index in
+            guard let self else { return }
+            self.services.vote(for: index, in: self.note)
+        }
+        poll.onToggleResults = { [weak self] in
+            guard let self else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            self.pollResultsShown.toggle()
+            self.reloadContent()
+        }
         addSubview(poll)
         quote.onMedia = { [weak self] index in self?.onMedia?(.quote, index) }
         quote.addAction(UIAction { [weak self] _ in self?.onQuote?() }, for: .touchUpInside)
@@ -247,7 +258,7 @@ final class FocusedNoteView: UIView {
         }
         if let poll = note.poll {
             let choiceFont = Typography.system(size(15))
-            self.poll.configure(poll) { collect(text.build($0, emojis: .text(of: note), font: choiceFont, color: .primaryText)) }
+            self.poll.configure(poll, peeking: pollResultsShown) { collect(text.build($0, emojis: .text(of: note), font: choiceFont, color: .primaryText)) }
         }
         if let quoted = note.renote {
             let header = NSMutableAttributedString(attributedString: collect(text.build(

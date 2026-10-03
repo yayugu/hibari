@@ -28,6 +28,11 @@ extension MisskeyClient {
         _ = try await data("notes/reactions/delete", ["noteId": noteID])
     }
 
+    /// `notes/polls/vote`: votes for the choice at `choice` (its index) in the note's poll.
+    func vote(in noteID: String, choice: Int) async throws {
+        _ = try await data("notes/polls/vote", ["noteId": noteID, "choice": choice])
+    }
+
     func deleteNote(_ noteID: String) async throws {
         _ = try await data("notes/delete", ["noteId": noteID])
     }

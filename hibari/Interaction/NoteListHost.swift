@@ -45,6 +45,11 @@ extension NoteListHost {
             updateState(ofNote: item.id) { $0.cwExpanded.toggle() }
         case .expandText:
             updateState(ofNote: item.id) { $0.textExpanded = true }
+        case .vote(let index):
+            services.vote(for: index, in: note)
+        case .togglePollResults:
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            updateState(ofNote: item.id) { $0.pollResultsShown.toggle() }
         case .reaction(let key):
             services.reactionTapped(key, on: note, origin: origin(of: .reaction(key)))
         case .react:
@@ -104,6 +109,16 @@ extension NoteListHost {
                 self.perform(.media(MediaRef(owner: .note, index: 0)), on: item, cell: self.noteCell(for: noteID))
                 return true
             })
+        }
+        if let poll = note.poll {
+            let closed = poll.isClosed(at: Date())
+            for (index, choice) in poll.choices.enumerated() where poll.canVote(for: index, closed: closed) {
+                actions.append(UIAccessibilityCustomAction(name: "「\(choice.text)」に投票") { [weak self] _ in
+                    guard let self else { return false }
+                    self.perform(.vote(index), on: item, cell: self.noteCell(for: noteID))
+                    return true
+                })
+            }
         }
         actions.append(UIAccessibilityCustomAction(name: "\(note.user.displayName)のプロフィール") { [weak self] _ in
             guard let self else { return false }

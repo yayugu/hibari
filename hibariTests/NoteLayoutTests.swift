@@ -99,6 +99,42 @@ struct NoteLayoutTests {
         #expect(revealed.targets.contains { $0.action == .toggleCW })
     }
 
+    @Test func pollChoicesTakeVotesAndHideResultsUntilAsked() throws {
+        let context = Samples.context()
+        let engine = Samples.engine()
+        func layout(_ voted: [Bool], multiple: Bool = false, expiresIn: TimeInterval? = 3600,
+                    peeking: Bool = false) throws -> NoteLayout {
+            let formatter = ISO8601DateFormatter()
+            var poll: [String: Any] = [
+                "multiple": multiple,
+                "choices": voted.enumerated().map { ["text": "選択肢\($0)", "votes": $1 ? 3 : 1, "isVoted": $1] },
+            ]
+            if let expiresIn { poll["expiresAt"] = formatter.string(from: Samples.now.addingTimeInterval(expiresIn)) }
+            var item = TimelineItem(note: try Samples.makeNote(text: "どれ？", poll: poll))
+            item.state.pollResultsShown = peeking
+            return engine.layout(for: item, context: context, now: Samples.now)
+        }
+        func votes(_ layout: NoteLayout) -> [Int] {
+            layout.targets.compactMap { if case .vote(let index) = $0.action { index } else { nil } }
+        }
+        func toggles(_ layout: NoteLayout) -> Bool { layout.targets.contains { $0.action == .togglePollResults } }
+
+        let fresh = try layout([false, false, false])
+        #expect(votes(fresh) == [0, 1, 2] && toggles(fresh))
+        let peeking = try layout([false, false, false], peeking: true)
+        #expect(votes(peeking) == [0, 1, 2] && toggles(peeking), "results can be seen before voting")
+        #expect(peeking.height == fresh.height, "showing the results does not move the note")
+
+        let voted = try layout([false, true, false])
+        #expect(votes(voted).isEmpty && !toggles(voted))
+        let votedMultiple = try layout([false, true, false], multiple: true)
+        #expect(votes(votedMultiple) == [0, 2] && !toggles(votedMultiple))
+        let ended = try layout([false, false, false], expiresIn: -60)
+        #expect(votes(ended).isEmpty && !toggles(ended))
+        let open = try layout([false, false], expiresIn: nil)
+        #expect(votes(open) == [0, 1])
+    }
+
     @Test func sensitiveMediaIsNotRequestedUntilRevealed() throws {
         let note = try #require(Samples.firstNote {
             !$0.isPureRenote && $0.cw == nil && $0.files.prefix(3).contains(where: \.isSensitive)

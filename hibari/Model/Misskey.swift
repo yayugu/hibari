@@ -128,7 +128,7 @@ final class Note: Codable, Sendable {
 
     private init(_ note: Note, reactions: [String: Int]? = nil, reactionEmojis: [String: String]? = nil,
                  myReaction: String?? = nil, renoteCount: Int? = nil, isRenotedByMe: Bool? = nil,
-                 isBookmarked: Bool? = nil, reply: Note?? = nil, renote: Note?? = nil) {
+                 isBookmarked: Bool? = nil, reply: Note?? = nil, renote: Note?? = nil, poll: Poll?? = nil) {
         id = note.id
         createdAt = note.createdAt
         user = note.user
@@ -147,7 +147,7 @@ final class Note: Codable, Sendable {
         renoteId = note.renoteId
         self.reply = reply ?? note.reply
         self.renote = renote ?? note.renote
-        poll = note.poll
+        self.poll = poll ?? note.poll
         self.myReaction = myReaction ?? note.myReaction
         reactionAcceptance = note.reactionAcceptance
         self.isRenotedByMe = isRenotedByMe ?? note.isRenotedByMe
@@ -170,6 +170,10 @@ final class Note: Codable, Sendable {
 
     func with(isBookmarked: Bool) -> Note {
         isBookmarked == self.isBookmarked ? self : Note(self, isBookmarked: isBookmarked)
+    }
+
+    func with(poll: Poll) -> Note {
+        Note(self, poll: .some(poll))
     }
 
     /// This note with `change` applied wherever the note it is about appears: itself, or the
@@ -257,6 +261,15 @@ struct BookmarkChange: NoteChange, Equatable {
 
     func applied(to note: Note) -> Note {
         note.with(isBookmarked: isBookmarked)
+    }
+}
+
+struct PollChange: NoteChange {
+    let noteID: String
+    let poll: Poll
+
+    func applied(to note: Note) -> Note {
+        note.with(poll: poll)
     }
 }
 
@@ -405,12 +418,46 @@ struct Poll: Codable, Sendable {
     struct Choice: Codable, Sendable {
         let text: String
         let votes: Int
+        /// nil when the server does not say (no account).
         let isVoted: Bool?
     }
 
     let multiple: Bool
     let expiresAt: Date?
     let choices: [Choice]
+
+    var hasVoted: Bool { choices.contains { $0.isVoted == true } }
+
+    func isClosed(at now: Date) -> Bool {
+        expiresAt.map { $0 <= now } ?? false
+    }
+
+    /// Whether the account can still vote for the choice at `index`: Misskey takes one
+    /// vote per choice, and only one choice unless the poll is `multiple`. Votes cannot be
+    /// taken back. `closed`: the poll has ended (`isClosed(at:)`).
+    func canVote(for index: Int, closed: Bool) -> Bool {
+        guard choices.indices.contains(index), !closed else { return false }
+        return choices[index].isVoted == false && (multiple || !hasVoted)
+    }
+
+    /// Whether some choice still takes the account's vote.
+    func canVote(closed: Bool) -> Bool {
+        choices.indices.contains { canVote(for: $0, closed: closed) }
+    }
+
+    /// Results show once the account voted or the poll ended (as on Misskey), when it asks
+    /// to see them (`peeking`), and when the server does not say what the account voted.
+    func showsResults(peeking: Bool, closed: Bool) -> Bool {
+        peeking || hasVoted || closed || choices.contains { $0.isVoted == nil }
+    }
+
+    /// With the account's vote for the choice at `index` counted.
+    func voting(for index: Int) -> Poll {
+        Poll(multiple: multiple, expiresAt: expiresAt, choices: choices.enumerated().map { offset, choice in
+            guard offset == index, choice.isVoted != true else { return choice }
+            return Choice(text: choice.text, votes: ServerCount.adding(choice.votes, 1), isVoted: true)
+        })
+    }
 }
 
 struct CustomEmoji: Decodable, Sendable {

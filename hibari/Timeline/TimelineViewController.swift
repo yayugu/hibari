@@ -950,6 +950,12 @@ final class TimelineViewController: UIViewController {
         collectionView.contentOffset.y <= -collectionView.adjustedContentInset.top + 1
     }
 
+    /// Refreshes with the pull-to-refresh spinner showing, as if pulled.
+    func refreshShowingSpinner() {
+        guard let pullToRefresh else { return refresh() }
+        pullToRefresh.beginRefreshing()
+    }
+
     func scrollToTop(animated: Bool) {
         collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: animated)
     }

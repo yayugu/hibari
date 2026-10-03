@@ -58,6 +58,21 @@ final class PullToRefresh {
         onInsetChange?()
     }
 
+    /// Starts refreshing as if pulled, without a drag: the content moves down to show the spinner.
+    func beginRefreshing() {
+        guard !isRefreshing, let scrollView else { return }
+        isRefreshing = true
+        startedAt = Date()
+        spinner.startAnimating()
+        UIView.animate(withDuration: 0.3, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.spinner.alpha = 1
+            self.inset = Self.room
+            self.onInsetChange?()
+            scrollView.contentOffset.y = -scrollView.adjustedContentInset.top
+        }
+        onRefresh?()
+    }
+
     /// `foundNew`: the refresh brought something new, which shows right away; otherwise
     /// the spinner stays for `minimumDuration`.
     func endRefreshing(foundNew: Bool = true) {

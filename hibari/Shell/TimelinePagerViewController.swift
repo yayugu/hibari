@@ -173,6 +173,13 @@ final class TimelinePagerViewController: UIViewController {
         bars.show(animated: true)
     }
 
+    /// At the top, refreshes the current timeline with the spinner showing; otherwise scrolls to the top.
+    func refreshOrScrollToTop() {
+        guard let timeline = currentTimeline, timeline.isLoaded, timeline.isAtTop else { return scrollToTop() }
+        timeline.refreshShowingSpinner()
+        bars.show(animated: true)
+    }
+
     func saveTimelines() {
         timelines.forEach { $0.saveSnapshot() }
     }

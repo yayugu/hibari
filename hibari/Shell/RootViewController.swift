@@ -238,11 +238,15 @@ final class RootViewController: UIViewController {
         view.layoutIfNeeded()
     }
 
-    private func makeProfile() {
+    /// The account, as a user.
+    private var accountUser: User {
         let account = session.account
-        let user = User(id: account.userID, name: account.name, username: account.username, host: nil,
-                        avatarUrl: account.avatarUrl)
-        let profile = ProfileViewController(subject: .user(user), services: services)
+        return User(id: account.userID, name: account.name, username: account.username, host: nil,
+                    avatarUrl: account.avatarUrl)
+    }
+
+    private func makeProfile() {
+        let profile = ProfileViewController(subject: .user(accountUser), services: services)
         let stack = ScreenStackController(rootViewController: profile)
         self.profile = profile
         profileStack = stack
@@ -303,6 +307,14 @@ final class RootViewController: UIViewController {
         let stack = selectedStack
         stack.popToRootViewController(animated: false)
         stack.pushViewController(BookmarksViewController(services: services), animated: false)
+    }
+
+    /// The account's followers or followees, on top of the tab's root (without the push
+    /// animation, like the profile).
+    func showFollows(_ list: FollowList) {
+        let stack = selectedStack
+        stack.popToRootViewController(animated: false)
+        services.openFollows(of: accountUser, list: list, from: stack.topViewController ?? stack, animated: false)
     }
 
     /// The settings, on top of the tab's root (without the push animation, like the

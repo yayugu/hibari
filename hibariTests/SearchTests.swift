@@ -76,7 +76,7 @@ struct SearchTests {
             try await NoteSearchSource(client: client, search: .keywords("ねこ", userID: nil)).notes(until: nil, limit: 20)
         }
         await #expect(throws: SearchError.usersNotAllowed) {
-            try await UserSearchSource(client: client, query: "ねこ").users(offset: 0, limit: 20)
+            try await UserSearchSource(client: client, query: "ねこ").users(from: nil, limit: 20)
         }
         #expect(SearchError.notesNotAllowed.errorDescription == "このサーバーではノートの検索が許可されていません")
     }
@@ -88,8 +88,9 @@ struct SearchTests {
             return .json([["id": "u1", "username": "alice", "description": "ねこ"]])
         }
         let client = MisskeyClient(server: TestData.server, token: "T", session: urlSession)
-        let users = try await UserSearchSource(client: client, query: "ali").users(offset: 30, limit: 30)
-        #expect(users.map(\.user.acct) == ["@alice"] && users.first?.description == "ねこ")
+        let page = try await UserSearchSource(client: client, query: "ali").users(from: "30", limit: 30)
+        #expect(page.users.map(\.user.acct) == ["@alice"] && page.users.first?.description == "ねこ")
+        #expect(page.next == "31")
         let body = try #require(requests.withLock { $0.first })
         #expect(body["query"] as? String == "ali" && body["offset"] as? Int == 30 && body["limit"] as? Int == 30)
         #expect(body["origin"] as? String == "combined", "remote users too")

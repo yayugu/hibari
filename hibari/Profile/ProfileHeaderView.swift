@@ -26,6 +26,8 @@ final class ProfileHeaderView: UIView {
     }
 
     let followButton = FollowButton(height: ProfileMetrics.buttonHeight)
+    /// The following and followers counts, which open the lists.
+    let counts = FollowCountsView()
 
     /// Where the name is, in the view's coordinates (for the top bar's title).
     private(set) var nameFrame: CGRect = .zero
@@ -40,7 +42,6 @@ final class ProfileHeaderView: UIView {
     private let bioView = LinkTextView()
     private var fieldRows: [(name: UILabel, value: LinkTextView)] = []
     private var detailLabels: [UILabel] = []
-    private let countsLabel = UILabel()
     private var emojiReloadPending = false
     private var provisionalEmojis: Set<String> = []
     /// Built again (the text changed height): the screen lays the header out again.
@@ -64,8 +65,7 @@ final class ProfileHeaderView: UIView {
         messageLabel.accessibilityIdentifier = "profile.message"
         spinner.color = .hibari(.secondaryText)
         bioView.accessibilityIdentifier = "profile.bio"
-        countsLabel.accessibilityIdentifier = "profile.counts"
-        for view in [nameLabel, acctLabel, followsYouLabel, messageLabel, spinner, bioView, countsLabel] as [UIView] {
+        for view in [nameLabel, acctLabel, followsYouLabel, messageLabel, spinner, bioView, counts] as [UIView] {
             addSubview(view)
         }
 
@@ -194,10 +194,9 @@ final class ProfileHeaderView: UIView {
         }
 
         configureDetails(profile, user: user)
-        countsLabel.attributedText = profile.flatMap {
-            FollowCounts.text(following: $0.followingCount, followers: $0.followersCount, size: size(15))
-        }
-        countsLabel.isHidden = countsLabel.attributedText == nil
+        counts.configure(following: profile?.followingCount, followers: profile?.followersCount, size: size(15),
+                         identifier: "profile.counts")
+        counts.isHidden = counts.isEmpty
 
         provisionalEmojis = provisional
         loadMissingEmojis(missing)
@@ -375,22 +374,24 @@ final class ProfileHeaderView: UIView {
             y += lineHeight + 12
         }
 
-        if !countsLabel.isHidden {
-            let height = ceil(countsLabel.sizeThatFits(CGSize(width: inner, height: 100)).height)
-            countsLabel.frame = CGRect(x: pad, y: y, width: inner, height: height)
+        if !counts.isHidden {
+            let size = counts.sizeThatFits(CGSize(width: inner, height: 100))
+            counts.frame = CGRect(x: pad, y: y, width: size.width, height: size.height)
+            let height = size.height
             y += height + 12
         }
         return ceil(y + 4)
     }
 }
 
+/// A short gray label on a gray box, like X's "フォローされています".
 final class BadgeLabel: UILabel {
-    private let insets = UIEdgeInsets(top: 2, left: 5, bottom: 2, right: 5)
+    private let insets = UIEdgeInsets(top: 0, left: 5, bottom: 0, right: 5)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         textColor = .hibari(.secondaryText)
-        backgroundColor = .hibari(.chipBackground)
+        backgroundColor = .hibari(.badgeBackground)
         layer.cornerRadius = 4
         layer.masksToBounds = true
     }
@@ -400,8 +401,13 @@ final class BadgeLabel: UILabel {
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         let fitted = super.sizeThatFits(CGSize(width: size.width - insets.left - insets.right, height: size.height))
-        return CGSize(width: ceil(fitted.width) + insets.left + insets.right,
-                      height: ceil(fitted.height) + insets.top + insets.bottom)
+        // Tighter than the line: the box hugs the text.
+        let height = (font.pointSize * 1.12).rounded()
+        return CGSize(width: ceil(fitted.width) + insets.left + insets.right, height: height + insets.top + insets.bottom)
+    }
+
+    override var intrinsicContentSize: CGSize {
+        sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
     }
 
     override func drawText(in rect: CGRect) {

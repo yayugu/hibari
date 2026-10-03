@@ -10,13 +10,19 @@ final class NavigationHeaderView: UIView {
     private let titleLabel = UILabel()
     private let trailingButton: UIButton?
     private let tabs: UIView?
+    private let tabsHeight: CGFloat
     private let hairline = UIView()
+    private let rowHairline: UIView?
 
-    /// `identifier`: the screen's (the back arrow is "<identifier>.back").
-    init(title: String, identifier: String, trailingButton: UIButton? = nil, tabs: UIView? = nil) {
+    /// `identifier`: the screen's (the back arrow is "<identifier>.back"). `tabsHeight`, and
+    /// `separatesTabs` (a line between the row and the tabs): for tabs like X's lists of users.
+    init(title: String, identifier: String, trailingButton: UIButton? = nil, tabs: UIView? = nil,
+         tabsHeight: CGFloat = NavigationHeaderView.tabsHeight, separatesTabs: Bool = false) {
         backButton = ChromeButton.back(identifier: "\(identifier).back")
         self.trailingButton = trailingButton
         self.tabs = tabs
+        self.tabsHeight = tabsHeight
+        rowHairline = tabs != nil && separatesTabs ? UIView() : nil
         super.init(frame: .zero)
         backgroundColor = .hibari(.background)
         addSubview(rowView)
@@ -31,15 +37,26 @@ final class NavigationHeaderView: UIView {
         if let trailingButton { rowView.addSubview(trailingButton) }
 
         if let tabs { addSubview(tabs) }
-        hairline.backgroundColor = .hibari(.separator)
-        addSubview(hairline)
+        for line in [hairline, rowHairline].compactMap({ $0 }) {
+            line.backgroundColor = .hibari(.separator)
+            addSubview(line)
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    /// A title with emojis (a display name). Centered on one line.
+    func setTitle(_ title: NSAttributedString) {
+        let text = NSMutableAttributedString(attributedString: title)
+        text.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: text.length))
+        titleLabel.attributedText = text
+        titleLabel.textAlignment = .center
+        titleLabel.lineBreakMode = .byTruncatingTail
+    }
+
     /// The row and the tabs, without the status bar.
-    var height: CGFloat { Self.rowHeight + (tabs == nil ? 0 : Self.tabsHeight) }
+    var height: CGFloat { Self.rowHeight + (tabs == nil ? 0 : tabsHeight) }
 
     /// Puts the bar at the top of `controller`'s view, behind the status bar too. The
     /// screen's safe area starts below it, as it would below UIKit's bar.
@@ -59,7 +76,7 @@ final class NavigationHeaderView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         let w = bounds.width
-        let tabsHeight = tabs == nil ? 0 : Self.tabsHeight
+        let tabsHeight = tabs == nil ? 0 : self.tabsHeight
         rowView.frame = CGRect(x: 0, y: bounds.height - tabsHeight - Self.rowHeight, width: w, height: Self.rowHeight)
         backButton.frame = CGRect(x: 6, y: 0, width: 44, height: Self.rowHeight)
         trailingButton?.frame = CGRect(x: w - 6 - 44, y: 0, width: 44, height: Self.rowHeight)
@@ -67,6 +84,7 @@ final class NavigationHeaderView: UIView {
         tabs?.frame = CGRect(x: 0, y: bounds.height - tabsHeight, width: w, height: tabsHeight)
         let scale = window?.screen.scale ?? traitCollection.displayScale
         hairline.frame = CGRect(x: 0, y: bounds.height - 1 / scale, width: w, height: 1 / scale)
+        rowHairline?.frame = CGRect(x: 0, y: rowView.frame.maxY - 1 / scale, width: w, height: 1 / scale)
     }
 }
 

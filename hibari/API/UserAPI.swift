@@ -120,3 +120,64 @@ struct UserNotesSource: NoteTimelineSource {
         return try MisskeyJSON.decodeNotes(from: await client.data(endpoint, parameters))
     }
 }
+
+enum FollowList: Int, CaseIterable, Sendable {
+    case followers
+    case following
+
+    var title: String {
+        switch self {
+        case .followers: "フォロワー"
+        case .following: "フォロー中"
+        }
+    }
+}
+
+/// `users/followers` or `users/following`: the latest follow first, paged by the follow's id.
+struct FollowListSource: UserListSource {
+    let client: MisskeyClient
+    let userID: String
+    let list: FollowList
+
+    func users(from cursor: String?, limit: Int) async throws -> UserListPage {
+        var parameters: [String: any Sendable] = ["userId": userID, "limit": limit]
+        if let cursor { parameters["untilId"] = cursor }
+        do {
+            let follows = try await client.request(list == .followers ? "users/followers" : "users/following",
+                                                   parameters, as: [Follow].self)
+            return UserListPage(users: follows.compactMap { list == .followers ? $0.follower : $0.followee },
+                                next: follows.last?.id)
+        } catch let error as MisskeyAPIError where error.code == "FORBIDDEN" {
+            throw FollowListError.hidden(list)
+        }
+    }
+
+    /// A follow, with the user it is listed for (dropped if it does not decode).
+    private struct Follow: Decodable {
+        let id: String
+        let follower: UserDetailed?
+        let followee: UserDetailed?
+
+        private enum CodingKeys: String, CodingKey {
+            case id, follower, followee
+        }
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            follower = try? c.decodeIfPresent(UserDetailed.self, forKey: .follower)
+            followee = try? c.decodeIfPresent(UserDetailed.self, forKey: .followee)
+        }
+    }
+}
+
+enum FollowListError: LocalizedError, Equatable {
+    /// The user shows the list to no one, or only to their followers.
+    case hidden(FollowList)
+
+    var errorDescription: String? {
+        switch self {
+        case .hidden(let list): "\(list == .followers ? "フォロワー" : "フォロー")の一覧は公開されていません"
+        }
+    }
+}

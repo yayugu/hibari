@@ -134,6 +134,13 @@ extension NoteServices {
         navigation.pushViewController(ProfileViewController(subject: subject, services: self), animated: animated)
     }
 
+    /// The users who follow `user`, or whom they follow (with the other list a swipe away).
+    func openFollows(of user: User, list: FollowList, from controller: UIViewController, animated: Bool = true) {
+        guard client != nil else { return }
+        controller.navigationController?.pushViewController(
+            FollowListViewController(user: user, list: list, services: self), animated: animated)
+    }
+
     /// The results of searching `text`, unless they are already on top.
     func openSearch(_ text: String, from controller: UIViewController) {
         let query = SearchQuery(text, server: client?.server)
@@ -277,7 +284,7 @@ extension NoteServices {
         }
     }
 
-    private func failed(_ error: any Error, fallback: String) {
+    func failed(_ error: any Error, fallback: String) {
         if (error as? MisskeyAPIError)?.isAuthenticationFailure == true {
             onAuthenticationFailure?()
         }

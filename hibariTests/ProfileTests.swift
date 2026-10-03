@@ -52,6 +52,42 @@ struct ProfileTests {
         #expect(FollowState(Relation(isFollowing: true, isBlocking: true, isKnown: true)) == .blocking)
     }
 
+    @Test func followListsPageByTheFollowAndListTheOtherUser() async throws {
+        let requests = Locked<[(String, [String: Any])]>([])
+        let urlSession = StubURLProtocol.session { request, body in
+            let endpoint = request.url!.lastPathComponent
+            requests.withLock { $0.append((endpoint, body)) }
+            let key = endpoint == "followers" ? "follower" : "followee"
+            return .json([
+                ["id": "f9", key: ["id": "u1", "username": "alice", "isFollowing": false, "isFollowed": true]],
+                ["id": "f8", key: ["broken": true]],
+            ])
+        }
+        let client = MisskeyClient(server: TestData.server, token: "T", session: urlSession)
+        let followers = try await FollowListSource(client: client, userID: "u0", list: .followers)
+            .users(from: nil, limit: 30)
+        #expect(followers.users.map(\.user.acct) == ["@alice"], "users that do not decode are dropped")
+        #expect(followers.next == "f8", "the next page starts after the last follow, decoded or not")
+        #expect(FollowState(followers.users[0].relation) == .followBack)
+        let following = try await FollowListSource(client: client, userID: "u0", list: .following)
+            .users(from: "f8", limit: 30)
+        #expect(following.users.map(\.user.acct) == ["@alice"])
+        let sent = requests.withLock { $0 }
+        #expect(sent.map(\.0) == ["followers", "following"])
+        #expect(sent[0].1["userId"] as? String == "u0" && sent[0].1["untilId"] == nil)
+        #expect(sent[1].1["untilId"] as? String == "f8" && sent[1].1["limit"] as? Int == 30)
+    }
+
+    @Test func hiddenFollowListsSaySo() async throws {
+        let urlSession = StubURLProtocol.session { _, _ in
+            .json(["error": ["code": "FORBIDDEN", "message": "Forbidden."]], status: 400)
+        }
+        let client = MisskeyClient(server: TestData.server, token: "T", session: urlSession)
+        await #expect(throws: FollowListError.hidden(.following)) {
+            try await FollowListSource(client: client, userID: "u0", list: .following).users(from: nil, limit: 30)
+        }
+    }
+
     @Test func tabsAskForTheNotesMisskeysWebClientShows() async throws {
         let requests = Locked<[String: [String: Any]]>([:])
         let urlSession = StubURLProtocol.session { request, body in

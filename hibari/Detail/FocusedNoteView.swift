@@ -22,6 +22,21 @@ final class FocusedNoteView: UIView {
     var onShare: (() -> Void)?
     /// The avatar or the name: the author's profile.
     var onUser: ((User) -> Void)?
+    var onFollow: (() -> Void)?
+    /// The follow button's, nil without it (the account follows the author, or it is theirs).
+    var followState: FollowState? {
+        didSet {
+            guard followState != oldValue else { return }
+            if let followState { followButton.apply(followState) }
+            let appears = oldValue == nil && followState != nil && window != nil
+            followButton.isHidden = followState == nil
+            setNeedsLayout()
+            guard appears else { return }
+            layoutIfNeeded()
+            followButton.alpha = 0
+            UIView.animate(withDuration: 0.2) { self.followButton.alpha = 1 }
+        }
+    }
     /// The content changed height.
     var onResize: (() -> Void)?
 
@@ -42,6 +57,7 @@ final class FocusedNoteView: UIView {
     private let avatar = UIImageView()
     private let nameLabel = UILabel()
     private let acctLabel = UILabel()
+    private let followButton = FollowButton(height: 26, fontSize: 11)
     private let cwTextView = SelectableTextView()
     private let cwButton = UIButton(configuration: .gray())
     private let bodyTextView = SelectableTextView()
@@ -85,6 +101,10 @@ final class FocusedNoteView: UIView {
             view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(userTapped)))
         }
         avatar.accessibilityIdentifier = "noteDetail.avatar"
+        followButton.isHidden = true
+        followButton.accessibilityIdentifier = "noteDetail.follow"
+        followButton.addAction(UIAction { [weak self] _ in self?.onFollow?() }, for: .touchUpInside)
+        addSubview(followButton)
 
         cwTextView.onLink = { [weak self] in self?.onLink?($0) }
         addSubview(cwTextView)
@@ -410,7 +430,16 @@ final class FocusedNoteView: UIView {
             avatar.frame = CGRect(x: pad, y: y, width: Self.avatarSize, height: Self.avatarSize)
         }
         let nameX = pad + Self.avatarSize + LayoutMetrics().avatarSpacing
-        let nameWidth = width - nameX - pad
+        var nameWidth = width - nameX - pad
+        if !followButton.isHidden {
+            let size = followButton.intrinsicContentSize
+            if apply {
+                followButton.frame = CGRect(x: width - pad - size.width,
+                                            y: y + ((Self.avatarSize - size.height) / 2).rounded(),
+                                            width: size.width, height: size.height)
+            }
+            nameWidth -= size.width + 12
+        }
         let nameHeight = ceil(nameLabel.sizeThatFits(CGSize(width: nameWidth, height: 100)).height)
         let acctHeight = ceil(acctLabel.sizeThatFits(CGSize(width: nameWidth, height: 100)).height)
         let namesTop = y + (Self.avatarSize - nameHeight - acctHeight) / 2

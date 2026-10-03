@@ -140,31 +140,106 @@ final class AccountNameLabel: UILabel {
     }
 }
 
-extension Account {
-    func countsText(size: CGFloat) -> NSAttributedString? {
-        FollowCounts.text(following: followingCount, followers: followersCount, size: size)
-    }
-}
+/// "2,570 フォロー中   1,885 フォロワー", counts in the primary color. Each opens its list.
+final class FollowCountsView: UIView {
+    var onSelect: ((FollowList) -> Void)?
 
-enum FollowCounts {
-    /// "2,570 フォロー中  1,885 フォロワー", counts in the primary color; nil without either.
-    static func text(following followingCount: Int?, followers followersCount: Int?, size: CGFloat)
-        -> NSAttributedString? {
-        guard followingCount != nil || followersCount != nil else { return nil }
-        let text = NSMutableAttributedString()
-        let number: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: size, weight: .semibold), .foregroundColor: UIColor.hibari(.primaryText),
-        ]
-        let label: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: size), .foregroundColor: UIColor.hibari(.secondaryText),
-        ]
-        for (count, title) in [(followingCount, "フォロー中"), (followersCount, "フォロワー")] {
-            guard let count else { continue }
-            if text.length > 0 { text.append(NSAttributedString(string: "   ", attributes: label)) }
-            text.append(NSAttributedString(string: count.formatted(), attributes: number))
-            text.append(NSAttributedString(string: " \(title)", attributes: label))
+    private let following = CountButton(list: .following)
+    private let followers = CountButton(list: .followers)
+
+    private static let spacing: CGFloat = 14
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        for button in [following, followers] {
+            button.addAction(UIAction { [weak self, list = button.list] _ in self?.onSelect?(list) }, for: .touchUpInside)
+            addSubview(button)
         }
-        return text
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// Neither count (the user hides both).
+    var isEmpty: Bool { following.isHidden && followers.isHidden }
+
+    /// `identifier`: the counts are "<identifier>.following" and "<identifier>.followers".
+    func configure(following followingCount: Int?, followers followersCount: Int?, size: CGFloat, identifier: String) {
+        following.configure(count: followingCount, size: size, identifier: "\(identifier).following")
+        followers.configure(count: followersCount, size: size, identifier: "\(identifier).followers")
+        setNeedsLayout()
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let shown = [following, followers].filter { !$0.isHidden }.map { $0.sizeThatFits(size) }
+        let width = shown.map(\.width).reduce(0, +) + Self.spacing * CGFloat(max(0, shown.count - 1))
+        return CGSize(width: min(size.width, width), height: shown.map(\.height).max() ?? 0)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        var x: CGFloat = 0
+        for button in [following, followers] where !button.isHidden {
+            let size = button.sizeThatFits(bounds.size)
+            button.frame = CGRect(x: x, y: (bounds.height - size.height) / 2, width: min(size.width, bounds.width - x),
+                                  height: size.height)
+            x += size.width + Self.spacing
+        }
+    }
+
+    /// The counts take touches a little around them.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -6, dy: -10).contains(point)
+    }
+
+    private final class CountButton: UIControl {
+        let list: FollowList
+        private let label = UILabel()
+
+        init(list: FollowList) {
+            self.list = list
+            super.init(frame: .zero)
+            label.lineBreakMode = .byTruncatingTail
+            label.isUserInteractionEnabled = false
+            addSubview(label)
+            isAccessibilityElement = true
+            accessibilityTraits = .button
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError() }
+
+        func configure(count: Int?, size: CGFloat, identifier: String) {
+            isHidden = count == nil
+            accessibilityIdentifier = identifier
+            guard let count else { return }
+            let text = NSMutableAttributedString(string: count.formatted(), attributes: [
+                .font: UIFont.systemFont(ofSize: size, weight: .semibold), .foregroundColor: UIColor.hibari(.primaryText),
+            ])
+            text.append(NSAttributedString(string: " \(list.title)", attributes: [
+                .font: UIFont.systemFont(ofSize: size), .foregroundColor: UIColor.hibari(.secondaryText),
+            ]))
+            label.attributedText = text
+            accessibilityLabel = "\(count.formatted()) \(list.title)"
+        }
+
+        override func sizeThatFits(_ size: CGSize) -> CGSize {
+            let fitted = label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: size.height))
+            return CGSize(width: ceil(fitted.width), height: ceil(fitted.height))
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            label.frame = bounds
+        }
+
+        override var isHighlighted: Bool {
+            didSet { label.alpha = isHighlighted ? 0.5 : 1 }
+        }
+
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            bounds.insetBy(dx: -6, dy: -10).contains(point)
+        }
     }
 }
 

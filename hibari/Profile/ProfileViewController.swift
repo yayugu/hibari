@@ -107,6 +107,7 @@ final class ProfileViewController: UIViewController {
 
         header.onContentChange = { [weak self] in self?.relayoutHeader() }
         header.followButton.addAction(UIAction { [weak self] _ in self?.followTapped() }, for: .touchUpInside)
+        header.counts.onSelect = { [weak self] list in self?.openFollows(list) }
         topBar.searchButton.addAction(UIAction { [weak self] _ in self?.searchNotes() }, for: .touchUpInside)
         topBar.moreButton.showsMenuAsPrimaryAction = true
         topBar.moreButton.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] completion in
@@ -121,6 +122,8 @@ final class ProfileViewController: UIViewController {
         headerTap.delegate = self
         view.addGestureRecognizer(headerTap)
 
+        NotificationCenter.default.addObserver(self, selector: #selector(relationDidChange(_:)),
+                                               name: NoteServices.didChangeRelation, object: services)
         configureContent()
         loadProfile()
     }
@@ -533,27 +536,13 @@ final class ProfileViewController: UIViewController {
     }
 
     private func followTapped() {
-        guard let profile, profile.relation.isKnown else { return }
-        let acct = profile.user.acct
-        switch FollowState(profile.relation) {
-        case .follow, .followBack:
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            let locked = profile.isLocked
-            change({ relation in
-                relation.isFollowing = !locked
-                relation.hasPendingFollowRequestFromYou = locked
-            }, done: locked ? "フォローリクエストを送りました" : nil) { try await $0.follow($1) }
-        case .following:
-            confirm("\(acct) のフォローを解除しますか？", action: "フォロー解除") { [weak self] in
-                self?.change({ $0.isFollowing = false }) { try await $0.unfollow($1) }
-            }
-        case .requested:
-            confirm("フォローリクエストを取り消しますか？", action: "取り消す") { [weak self] in
-                self?.change({ $0.hasPendingFollowRequestFromYou = false }) { try await $0.cancelFollowRequest(to: $1) }
-            }
-        case .blocking:
-            confirmUnblock()
-        }
+        guard let profile else { return }
+        services.followTapped(profile, from: self) { [weak self] in self?.loadProfile() }
+    }
+
+    private func openFollows(_ list: FollowList) {
+        guard let user = profile?.user ?? user else { return }
+        services.openFollows(of: user, list: list, from: self)
     }
 
     private func searchNotes() {
@@ -648,46 +637,22 @@ final class ProfileViewController: UIViewController {
 
     private func confirmUnblock() {
         guard let profile else { return }
-        confirm("\(profile.user.acct) のブロックを解除しますか？", action: "ブロック解除", destructive: false) { [weak self] in
-            self?.change({ $0.isBlocking = false }, done: "ブロックを解除しました") { try await $0.unblock($1) }
+        services.confirmUnblock(profile.user, relation: profile.relation, from: self) { [weak self] in
+            self?.loadProfile()
         }
-    }
-
-    private func confirm(_ title: String, action: String, destructive: Bool = true, perform: @escaping () -> Void) {
-        let sheet = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: action, style: destructive ? .destructive : .default) { _ in perform() })
-        sheet.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
-        present(sheet, animated: true)
     }
 
     private func change(_ update: (inout UserDetailed.Relation) -> Void, done: String? = nil, hides: Bool = false,
                         request: @escaping @Sendable (MisskeyClient, String) async throws -> Void) {
-        guard var profile, let client = services.client else { return }
-        let before = profile.relation
-        update(&profile.relation)
-        self.profile = profile
-        configureContent()
-        let userID = profile.user.id
-        let services = services
-        Task { [weak self] in
-            do {
-                try await request(client, userID)
-                if let done { Toast.show(done) }
-                if hides { services.didHide(userID) }
-                self?.loadProfile()
-            } catch {
-                self?.revert(to: before, error: error)
-            }
-        }
+        guard let profile else { return }
+        services.changeRelation(of: profile.user.id, from: profile.relation, update: update, message: done, hides: hides,
+                                done: { [weak self] in self?.loadProfile() }, request: request)
     }
 
-    private func revert(to relation: UserDetailed.Relation, error: any Error) {
-        UINotificationFeedbackGenerator().notificationOccurred(.error)
-        if (error as? MisskeyAPIError)?.isAuthenticationFailure == true {
-            services.onAuthenticationFailure?()
-        }
-        Toast.show(Self.message(for: error), in: view.window)
-        guard var profile else { return }
+    @objc private func relationDidChange(_ notification: Notification) {
+        guard var profile, notification.userInfo?["userID"] as? String == profile.user.id,
+              let relation = notification.userInfo?["relation"] as? UserDetailed.Relation, relation != profile.relation
+        else { return }
         profile.relation = relation
         self.profile = profile
         configureContent()

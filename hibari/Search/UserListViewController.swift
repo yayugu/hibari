@@ -4,6 +4,8 @@ final class UserListViewController: UIViewController {
     let services: NoteServices
     private let source: any UserListSource
     var emptyMessage = "ユーザーが見つかりませんでした"
+    /// Each user's follow button, and whether they follow the account.
+    var showsRelations = false
     var contentInsets: UIEdgeInsets = .zero {
         didSet { applyInsets() }
     }
@@ -12,6 +14,7 @@ final class UserListViewController: UIViewController {
     private let footer = TimelineFooterView()
     private var users: [UserDetailed] = []
     private var ids: Set<String> = []
+    private var cursor: String?
     private var reachedEnd = false
     private var isLoading = false
     private var failed = false
@@ -32,8 +35,7 @@ final class UserListViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .hibari(.background)
         tableView.backgroundColor = .hibari(.background)
-        tableView.separatorColor = .hibari(.separator)
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 0)
+        tableView.separatorStyle = .none
         tableView.register(UserRowCell.self, forCellReuseIdentifier: UserRowCell.reuseIdentifier)
         tableView.dataSource = self
         tableView.delegate = self
@@ -46,6 +48,8 @@ final class UserListViewController: UIViewController {
         view.addSubview(tableView)
         footer.emptyMessage = emptyMessage
         footer.onRetry = { [weak self] in self?.loadNextPage() }
+        NotificationCenter.default.addObserver(self, selector: #selector(relationDidChange(_:)),
+                                               name: NoteServices.didChangeRelation, object: services)
         applyInsets()
         setFooter(.loading)
         loadNextPage()
@@ -69,10 +73,10 @@ final class UserListViewController: UIViewController {
         failed = false
         setFooter(.loading)
         let source = self.source
-        let offset = users.count
+        let cursor = self.cursor
         Task { [weak self] in
             do {
-                let page = try await source.users(offset: offset, limit: Self.pageSize)
+                let page = try await source.users(from: cursor, limit: Self.pageSize)
                 self?.append(page)
             } catch {
                 self?.pageFailed(error)
@@ -80,10 +84,11 @@ final class UserListViewController: UIViewController {
         }
     }
 
-    private func append(_ page: [UserDetailed]) {
+    private func append(_ page: UserListPage) {
         isLoading = false
-        let fresh = page.filter { ids.insert($0.user.id).inserted }
-        if page.isEmpty { reachedEnd = true }
+        let fresh = page.users.filter { ids.insert($0.user.id).inserted }
+        cursor = page.next
+        if page.next == nil { reachedEnd = true }
         let range = users.count..<(users.count + fresh.count)
         users += fresh
         if range.lowerBound == 0 {
@@ -106,6 +111,20 @@ final class UserListViewController: UIViewController {
         setFooter(.failed((error as? LocalizedError)?.errorDescription ?? "読み込めませんでした"))
     }
 
+    @objc private func relationDidChange(_ notification: Notification) {
+        guard let userID = notification.userInfo?["userID"] as? String,
+              let relation = notification.userInfo?["relation"] as? UserDetailed.Relation,
+              let row = users.firstIndex(where: { $0.user.id == userID }), users[row].relation != relation
+        else { return }
+        users[row].relation = relation
+        tableView.reconfigureRows(at: [IndexPath(row: row, section: 0)])
+    }
+
+    private func followTapped(_ userID: String) {
+        guard let profile = users.first(where: { $0.user.id == userID }) else { return }
+        services.followTapped(profile, from: self)
+    }
+
     private func setFooter(_ state: TimelineFooterView.State) {
         footer.frame.size = CGSize(width: tableView.bounds.width, height: state.height)
         footer.apply(state)
@@ -120,7 +139,11 @@ extension UserListViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: UserRowCell.reuseIdentifier, for: indexPath) as! UserRowCell
-        cell.configure(users[indexPath.row], services: services)
+        cell.configure(users[indexPath.row], services: services, showsRelation: showsRelations)
+        cell.onFollow = { [weak self] userID in self?.followTapped(userID) }
+        cell.onResize = { [weak self] in
+            UIView.performWithoutAnimation { self?.tableView.performBatchUpdates(nil) }
+        }
         return cell
     }
 
@@ -134,17 +157,35 @@ extension UserListViewController: UITableViewDataSource, UITableViewDelegate {
     }
 }
 
+/// A user, as X lists them: the avatar, the name, the username, whether they follow the
+/// account, and the whole bio below, with the follow button at the top right.
 final class UserRowCell: UITableViewCell {
     static let reuseIdentifier = "UserRow"
 
     private let avatar = AvatarView()
     private let nameLabel = UILabel()
     private let acctLabel = UILabel()
+    private let followsYouLabel = BadgeLabel()
     private let bioLabel = UILabel()
+    private let followButton = FollowButton(height: 32, fontSize: 13)
     private var profile: UserDetailed?
+    private var showsRelation = false
     private weak var services: NoteServices?
+    /// The follow button tapped, with the user's id.
+    var onFollow: ((String) -> Void)?
+    /// The row changed height (emojis came in).
+    var onResize: (() -> Void)?
 
-    private static let avatarSize: CGFloat = 44
+    private enum Metrics {
+        static let top: CGFloat = 14
+        static let bottom: CGFloat = 16
+        static let leading: CGFloat = 12
+        static let trailing: CGFloat = 12
+        static let buttonTrailing: CGFloat = 9
+        static let avatarSize: CGFloat = 42
+        static let avatarSpacing: CGFloat = 11
+        static let buttonSpacing: CGFloat = 12
+    }
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -154,32 +195,23 @@ final class UserRowCell: UITableViewCell {
         selectedBackgroundView = selection
 
         avatar.clipsToBounds = true
-        avatar.layer.cornerRadius = Self.avatarSize / 2
+        avatar.layer.cornerRadius = Metrics.avatarSize / 2
         nameLabel.lineBreakMode = .byTruncatingTail
         acctLabel.textColor = .hibari(.secondaryText)
         acctLabel.lineBreakMode = .byTruncatingTail
-        bioLabel.numberOfLines = 3
-        bioLabel.lineBreakMode = .byTruncatingTail
-
-        let text = UIStackView(arrangedSubviews: [nameLabel, acctLabel, bioLabel])
-        text.axis = .vertical
-        text.spacing = 2
-        text.setCustomSpacing(6, after: acctLabel)
-        for view in [avatar, text] as [UIView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
+        followsYouLabel.text = "フォローされています"
+        bioLabel.numberOfLines = 0
+        followButton.titles = [.followBack: "フォローバックする"]
+        followButton.widthStates = [.follow, .followBack, .following, .requested]
+        followButton.titlePadding = 18
+        followButton.accessibilityIdentifier = "userList.follow"
+        followButton.addAction(UIAction { [weak self] _ in
+            guard let self, let profile = self.profile else { return }
+            self.onFollow?(profile.user.id)
+        }, for: .touchUpInside)
+        for view in [avatar, nameLabel, acctLabel, followsYouLabel, bioLabel, followButton] as [UIView] {
             contentView.addSubview(view)
         }
-        NSLayoutConstraint.activate([
-            avatar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            avatar.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            avatar.widthAnchor.constraint(equalToConstant: Self.avatarSize),
-            avatar.heightAnchor.constraint(equalToConstant: Self.avatarSize),
-            avatar.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -12),
-            text.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 12),
-            text.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            text.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            text.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -12),
-        ])
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitPreferredContentSizeCategory.self]) {
             (self: Self, _) in self.reload()
         }
@@ -188,9 +220,10 @@ final class UserRowCell: UITableViewCell {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(_ profile: UserDetailed, services: NoteServices) {
+    func configure(_ profile: UserDetailed, services: NoteServices, showsRelation: Bool) {
         self.profile = profile
         self.services = services
+        self.showsRelation = showsRelation
         avatar.setURL(profile.user.avatarUrl)
         reload()
     }
@@ -203,22 +236,38 @@ final class UserRowCell: UITableViewCell {
         guard let profile, let services else { return }
         let user = profile.user
         let scale = traitCollection.displayScale > 0 ? traitCollection.displayScale : 3
+        let palette = Palette.palette(for: ThemeStyle(traitCollection.userInterfaceStyle))
         let rich = UIKitRichText(resolver: services.engine.emojiResolver, imagePipeline: services.imagePipeline,
-                                 palette: .palette(for: ThemeStyle(traitCollection.userInterfaceStyle)),
-                                 scale: scale, linkURL: { _ in nil })
+                                 palette: palette, scale: scale, linkURL: { _ in nil })
         let emojis = EmojiContext.name(of: user)
         let name = rich.build(user.displayName, emojis: emojis, font: Typography.system(size(15), bold: true),
                               color: .primaryText, simple: true)
         let nameText = NSMutableAttributedString(attributedString: name.text)
         nameText.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: nameText.length))
         nameLabel.attributedText = nameText
-        acctLabel.font = .systemFont(ofSize: size(14))
+        acctLabel.font = .systemFont(ofSize: size(15))
         acctLabel.text = user.acct
+        let relation = profile.relation
+        followsYouLabel.font = .systemFont(ofSize: size(14))
+        followsYouLabel.isHidden = !showsRelation || !relation.isFollowed
+        followButton.isHidden = !showsRelation || !relation.isKnown || services.isAccount(user)
+        followButton.apply(FollowState(relation))
         var missing = name.missingEmojis
         if let description = profile.description {
-            let bio = rich.build(description, emojis: emojis, font: Typography.system(size(14)), color: .primaryText)
+            let bio = rich.build(description, emojis: emojis, font: Typography.system(size(15)), color: .primaryText,
+                                 lineHeight: (size(15) * 1.4).rounded())
+            // Links are plain text here, and lines break at any character, like X's lists.
             let bioText = NSMutableAttributedString(attributedString: bio.text)
-            bioText.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: bioText.length))
+            let whole = NSRange(location: 0, length: bioText.length)
+            let primary = UIColor(cgColor: palette[.primaryText])
+            bioText.enumerateAttribute(TextAttribute.link, in: whole) { value, range, _ in
+                if value != nil { bioText.addAttribute(.foregroundColor, value: primary, range: range) }
+            }
+            bioText.enumerateAttribute(.paragraphStyle, in: whole) { value, range, _ in
+                guard let style = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle else { return }
+                style.lineBreakStrategy = []
+                bioText.addAttribute(.paragraphStyle, value: style, range: range)
+            }
             bioLabel.attributedText = bioText
             bioLabel.isHidden = false
             missing += bio.missingEmojis
@@ -226,8 +275,62 @@ final class UserRowCell: UITableViewCell {
             bioLabel.attributedText = nil
             bioLabel.isHidden = true
         }
-        accessibilityLabel = [user.displayName, user.acct, profile.description].compactMap { $0 }.joined(separator: "、")
+        accessibilityLabel = [user.displayName, user.acct, followsYouLabel.isHidden ? nil : "フォローされています",
+                              profile.description].compactMap { $0 }.joined(separator: "、")
+        accessibilityCustomActions = followButton.isHidden ? nil : [
+            UIAccessibilityCustomAction(name: FollowState(relation).title) { [weak self] _ in
+                self?.onFollow?(user.id)
+                return true
+            },
+        ]
+        setNeedsLayout()
         loadMissing(missing, for: user.id, imagePipeline: services.imagePipeline)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layout(width: contentView.bounds.width, apply: true)
+    }
+
+    override func systemLayoutSizeFitting(_ targetSize: CGSize, withHorizontalFittingPriority horizontal: UILayoutPriority,
+                                          verticalFittingPriority vertical: UILayoutPriority) -> CGSize {
+        CGSize(width: targetSize.width, height: layout(width: targetSize.width, apply: false))
+    }
+
+    /// Places the views at `width`; returns the row's height.
+    @discardableResult
+    private func layout(width: CGFloat, apply: Bool) -> CGFloat {
+        let m = Metrics.self
+        let textX = m.leading + m.avatarSize + m.avatarSpacing
+        var headerMaxX = width - m.trailing
+        var buttonBottom: CGFloat = 0
+        if !followButton.isHidden {
+            let size = followButton.intrinsicContentSize
+            let frame = CGRect(x: width - m.buttonTrailing - size.width, y: m.top, width: size.width,
+                               height: size.height)
+            if apply { followButton.frame = frame }
+            headerMaxX = frame.minX - m.buttonSpacing
+            buttonBottom = frame.maxY
+        }
+        let headerWidth = max(0, headerMaxX - textX)
+        func line(_ label: UILabel, y: CGFloat, width: CGFloat) -> CGRect {
+            let size = label.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+            let frame = CGRect(x: textX, y: y, width: min(width, ceil(size.width)), height: ceil(size.height))
+            if apply { label.frame = frame }
+            return frame
+        }
+        if apply { avatar.frame = CGRect(x: m.leading, y: m.top, width: m.avatarSize, height: m.avatarSize) }
+        var y = m.top - 2
+        y = line(nameLabel, y: y, width: headerWidth).maxY + 2
+        y = line(acctLabel, y: y, width: headerWidth).maxY
+        if !followsYouLabel.isHidden {
+            y = line(followsYouLabel, y: y + 3.5, width: headerWidth).maxY
+        }
+        if !bioLabel.isHidden {
+            y = max(y, buttonBottom)
+            y = line(bioLabel, y: y + 2, width: width - m.trailing - textX).maxY
+        }
+        return ceil(max(y, m.top + m.avatarSize, buttonBottom) + m.bottom)
     }
 
     private func loadMissing(_ requests: [ImageRequest], for userID: String, imagePipeline: ImagePipeline) {
@@ -243,6 +346,7 @@ final class UserRowCell: UITableViewCell {
                       requests.contains(where: { imagePipeline.cachedImage(for: $0) != nil })
                 else { return }
                 self.reload()
+                self.onResize?()
             }
         }
     }

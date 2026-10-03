@@ -24,6 +24,10 @@ enum ColorRole: UInt8, Hashable, Sendable, CaseIterable {
     case overlayBackground
     case renote
     case reaction
+    /// Labels like "フォローされています".
+    case badgeBackground
+    /// The filled (follow) button.
+    case filledButton
 }
 
 struct Palette: @unchecked Sendable {
@@ -74,6 +78,8 @@ struct Palette: @unchecked Sendable {
         case .overlayBackground: return RGBA(0x000000, alpha: 0.55)
         case .renote: return RGBA(0x00BA7C)
         case .reaction: return RGBA(0xF91880)
+        case .badgeBackground: return RGBA(dark ? 0x202327 : 0xEFF3F4)
+        case .filledButton: return RGBA(dark ? 0xEFF3F4 : 0x0F1419)
         }
     }
 }

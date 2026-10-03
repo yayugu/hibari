@@ -134,6 +134,10 @@ final class AppRouter {
             self?.root?.showAccountProfile()
             self?.container?.close(animated: true)
         }
+        drawer.onShowFollows = { [weak self] list in
+            self?.root?.showFollows(list)
+            self?.container?.close(animated: true)
+        }
         drawer.onShowBookmarks = { [weak self] in
             self?.root?.showBookmarks()
             self?.container?.close(animated: true)

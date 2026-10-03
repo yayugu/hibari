@@ -92,21 +92,29 @@ struct NoteSearchSource: NoteTimelineSource {
 }
 
 protocol UserListSource: Sendable {
-    /// Up to `limit` users after the first `offset`. Empty at the end of the list.
-    func users(offset: Int, limit: Int) async throws -> [UserDetailed]
+    /// Up to `limit` users from `cursor` (nil: from the start).
+    func users(from cursor: String?, limit: Int) async throws -> UserListPage
+}
+
+struct UserListPage: Sendable {
+    let users: [UserDetailed]
+    /// Where the next page starts (what the source made of it); nil at the end of the list.
+    let next: String?
 }
 
 /// `users/search`: users whose name or username (or, when those find few, bio) has the
-/// query, of this server and the ones it knows.
+/// query, of this server and the ones it knows. Paged by offset.
 struct UserSearchSource: UserListSource {
     let client: MisskeyClient
     let query: String
 
-    func users(offset: Int, limit: Int) async throws -> [UserDetailed] {
+    func users(from cursor: String?, limit: Int) async throws -> UserListPage {
+        let offset = cursor.flatMap { Int($0) } ?? 0
         do {
-            return try await client.request(
+            let users = try await client.request(
                 "users/search", ["query": query, "offset": offset, "limit": limit, "origin": "combined"],
                 as: [UserDetailed].self)
+            return UserListPage(users: users, next: users.isEmpty ? nil : String(offset + users.count))
         } catch let error as MisskeyAPIError where SearchError.isNotAllowed(error) {
             throw SearchError.usersNotAllowed
         }
@@ -116,8 +124,11 @@ struct UserSearchSource: UserListSource {
 struct FixedUserListSource: UserListSource {
     let list: [UserDetailed]
 
-    func users(offset: Int, limit: Int) async throws -> [UserDetailed] {
-        offset < list.count ? Array(list[offset...].prefix(limit)) : []
+    func users(from cursor: String?, limit: Int) async throws -> UserListPage {
+        let offset = cursor.flatMap { Int($0) } ?? 0
+        let users = offset < list.count ? Array(list[offset...].prefix(limit)) : []
+        let end = offset + users.count
+        return UserListPage(users: users, next: end < list.count ? String(end) : nil)
     }
 }
 

@@ -8,6 +8,8 @@ final class NoteDetailViewController: UIViewController {
     private let moreButton = ChromeButton.plain("ellipsis", label: "その他", identifier: "noteDetail.more")
     private lazy var header = NavigationHeaderView(title: "ノート", identifier: "noteDetail", trailingButton: moreButton)
     private var note: Note
+    /// The note's author, for the follow button.
+    private var author: UserDetailed?
 
     private var ancestors: [TimelineItem] = []
     private var replies: [TimelineItem] = []
@@ -89,7 +91,10 @@ final class NoteDetailViewController: UIViewController {
                                                name: NoteServices.didDeleteNote, object: services)
         NotificationCenter.default.addObserver(self, selector: #selector(didHideUser(_:)),
                                                name: NoteServices.didHideUser, object: services)
+        NotificationCenter.default.addObserver(self, selector: #selector(relationDidChange(_:)),
+                                               name: NoteServices.didChangeRelation, object: services)
         load()
+        loadAuthor()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -144,7 +149,34 @@ final class NoteDetailViewController: UIViewController {
             guard let self else { return }
             self.services.openUser(user, from: self)
         }
+        focusedView.onFollow = { [weak self] in
+            guard let self, let author = self.author else { return }
+            self.services.followTapped(author, from: self)
+        }
         focusedView.onResize = { [weak self] in self?.focusedContentDidChange() }
+    }
+
+    /// The follow button shows if the account does not follow the author (yet): once there,
+    /// it stays, for following and taking it back.
+    private func loadAuthor() {
+        guard let client = services.client, !services.isAccount(note.user) else { return }
+        let userID = note.user.id
+        Task { [weak self] in
+            guard let author = try? await client.user(id: userID), let self else { return }
+            self.author = author
+            let state = FollowState(author.relation)
+            guard author.relation.isKnown, state != .following, state != .blocking else { return }
+            self.focusedView.followState = state
+        }
+    }
+
+    @objc private func relationDidChange(_ notification: Notification) {
+        guard var author, notification.userInfo?["userID"] as? String == author.user.id,
+              let relation = notification.userInfo?["relation"] as? UserDetailed.Relation
+        else { return }
+        author.relation = relation
+        self.author = author
+        if focusedView.followState != nil { focusedView.followState = FollowState(relation) }
     }
 
     private func setFocused(_ note: Note) {

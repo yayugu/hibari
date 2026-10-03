@@ -8,6 +8,10 @@ final class IconTabStripView: UIView {
     }
 
     var onSelect: ((Int) -> Void)?
+    /// Moves the tabs' contents up from the middle, off the indicator (X's lists of users).
+    var contentBottomInset: CGFloat = 0 {
+        didSet { setNeedsLayout() }
+    }
 
     private var buttons: [TabButton] = []
     private let indicator = TabIndicator.make()
@@ -20,10 +24,12 @@ final class IconTabStripView: UIView {
     private static let font = UIFont.systemFont(ofSize: 16, weight: .bold)
 
     /// Tabs are identified as "<identifierPrefix>.<index>" for accessibility.
-    init(tabs: [Tab], identifierPrefix: String) {
+    /// `showsTitles`: every tab has its title, and the selected one its icon too (otherwise
+    /// every tab has its icon, and the selected one its title too).
+    init(tabs: [Tab], identifierPrefix: String, showsTitles: Bool = false) {
         super.init(frame: .zero)
         for (index, tab) in tabs.enumerated() {
-            let button = TabButton(tab: tab, font: Self.font)
+            let button = TabButton(tab: tab, font: Self.font, showsTitle: showsTitles)
             button.accessibilityIdentifier = "\(identifierPrefix).\(index)"
             button.addAction(UIAction { [weak self] _ in
                 self?.feedback.selectionChanged()
@@ -62,7 +68,8 @@ final class IconTabStripView: UIView {
         guard !buttons.isEmpty else { return }
         let width = bounds.width / CGFloat(buttons.count)
         for (index, button) in buttons.enumerated() {
-            button.frame = CGRect(x: width * CGFloat(index), y: 0, width: width, height: bounds.height)
+            button.frame = CGRect(x: width * CGFloat(index), y: 0, width: width,
+                                  height: max(0, bounds.height - contentBottomInset))
             button.reveal = max(0, 1 - abs(progress - CGFloat(index)))
         }
         let lower = Int(progress.rounded(.down))
@@ -84,16 +91,17 @@ final class IconTabStripView: UIView {
         private let iconView = UIImageView()
         private let titleLabel = UILabel()
         private let titleWidth: CGFloat
+        private let showsTitle: Bool
 
-        init(tab: Tab, font: UIFont) {
+        init(tab: Tab, font: UIFont, showsTitle: Bool) {
             titleWidth = ceil((tab.title as NSString).size(withAttributes: [.font: font]).width)
+            self.showsTitle = showsTitle
             super.init(frame: .zero)
             iconView.image = tab.icon
             iconView.contentMode = .scaleAspectFit
             addSubview(iconView)
             titleLabel.text = tab.title
             titleLabel.font = font
-            titleLabel.textColor = .hibari(.primaryText)
             addSubview(titleLabel)
             isAccessibilityElement = true
             accessibilityLabel = tab.title
@@ -113,12 +121,15 @@ final class IconTabStripView: UIView {
 
         private func updateColors() {
             iconView.tintColor = isSelected ? .hibari(.primaryText) : .hibari(.secondaryText)
+            titleLabel.textColor = isSelected || !showsTitle ? .hibari(.primaryText) : .hibari(.secondaryText)
             accessibilityTraits = isSelected ? [.button, .selected] : .button
         }
 
         func contentFrame(revealed: Bool? = nil) -> CGRect {
             let reveal = revealed.map { $0 ? 1 : 0 } ?? self.reveal
-            let width = IconTabStripView.iconSize + (IconTabStripView.titleSpacing + titleWidth) * reveal
+            let width = showsTitle
+                ? titleWidth + (IconTabStripView.iconSize + IconTabStripView.titleSpacing) * reveal
+                : IconTabStripView.iconSize + (IconTabStripView.titleSpacing + titleWidth) * reveal
             let scale = traitCollection.displayScale > 0 ? traitCollection.displayScale : 3
             return CGRect(x: frame.minX + ((bounds.width - width) / 2).pixelAligned(scale: scale), y: 0,
                           width: width, height: bounds.height)
@@ -130,10 +141,16 @@ final class IconTabStripView: UIView {
             let x = contentFrame().minX - frame.minX
             iconView.frame = CGRect(x: x, y: ((bounds.height - size) / 2).rounded(), width: size, height: size)
             let titleHeight = ceil(titleLabel.font.lineHeight)
-            titleLabel.frame = CGRect(x: iconView.frame.maxX + IconTabStripView.titleSpacing,
-                                      y: ((bounds.height - titleHeight) / 2).rounded(), width: titleWidth,
+            let titleX = showsTitle
+                ? x + (size + IconTabStripView.titleSpacing) * reveal
+                : iconView.frame.maxX + IconTabStripView.titleSpacing
+            titleLabel.frame = CGRect(x: titleX, y: ((bounds.height - titleHeight) / 2).rounded(), width: titleWidth,
                                       height: titleHeight)
-            titleLabel.alpha = reveal
+            if showsTitle {
+                iconView.alpha = reveal
+            } else {
+                titleLabel.alpha = reveal
+            }
         }
     }
 }

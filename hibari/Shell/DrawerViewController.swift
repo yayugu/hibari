@@ -7,6 +7,8 @@ final class DrawerViewController: UIViewController {
     var onShowAccounts: (() -> Void)?
     /// Tapped the current account (its avatar or name), or "プロフィール": its profile.
     var onShowProfile: (() -> Void)?
+    /// Tapped the following or followers count of the current account.
+    var onShowFollows: ((FollowList) -> Void)?
     /// Tapped "ブックマーク".
     var onShowBookmarks: (() -> Void)?
     /// Tapped "設定".
@@ -18,7 +20,7 @@ final class DrawerViewController: UIViewController {
     private let avatar = AvatarView()
     private let nameLabel = AccountNameLabel()
     private let acctLabel = UILabel()
-    private let countsLabel = UILabel()
+    private let counts = FollowCountsView()
     private var otherButtons: [AccountAvatarButton] = []
     private let moreButton = UIButton(type: .system)
     private let moreDot = UnreadDot()
@@ -59,8 +61,8 @@ final class DrawerViewController: UIViewController {
         acctLabel.lineBreakMode = .byTruncatingMiddle
         acctLabel.accessibilityIdentifier = "drawer.acct"
         header.addSubview(acctLabel)
-        countsLabel.lineBreakMode = .byTruncatingTail
-        header.addSubview(countsLabel)
+        counts.onSelect = { [weak self] list in self?.onShowFollows?(list) }
+        header.addSubview(counts)
         profileButton.dimmed = [avatar, nameLabel, acctLabel]
         profileButton.isAccessibilityElement = true
         profileButton.accessibilityTraits = .button
@@ -147,8 +149,9 @@ final class DrawerViewController: UIViewController {
             avatar.setURL(current.avatarUrl)
             nameLabel.configure(current, font: .systemFont(ofSize: 18, weight: .bold))
             acctLabel.text = current.acct
-            countsLabel.attributedText = current.countsText(size: 15)
-            countsLabel.isHidden = countsLabel.attributedText == nil
+            counts.configure(following: current.followingCount, followers: current.followersCount, size: 15,
+                             identifier: "drawer.counts")
+            counts.isHidden = counts.isEmpty
             while otherButtons.count < others.count {
                 let button = AccountAvatarButton(size: Self.otherAvatarSize)
                 button.addAction(UIAction { [weak self, weak button] _ in
@@ -196,8 +199,9 @@ final class DrawerViewController: UIViewController {
         let nameHeight = ceil(nameLabel.sizeThatFits(CGSize(width: contentWidth, height: 100)).height)
         nameLabel.frame = CGRect(x: inset, y: avatar.frame.maxY + 10, width: contentWidth, height: nameHeight)
         acctLabel.frame = CGRect(x: inset, y: nameLabel.frame.maxY + 2, width: contentWidth, height: 20)
-        countsLabel.frame = CGRect(x: inset, y: acctLabel.frame.maxY + 12, width: contentWidth, height: 20)
-        let bottom = countsLabel.isHidden ? acctLabel.frame.maxY : countsLabel.frame.maxY
+        counts.frame = CGRect(x: inset, y: acctLabel.frame.maxY + 12, width: contentWidth, height: 20)
+        counts.frame.size.width = counts.sizeThatFits(CGSize(width: contentWidth, height: 20)).width
+        let bottom = counts.isHidden ? acctLabel.frame.maxY : counts.frame.maxY
         header.frame = CGRect(x: 0, y: 0, width: width, height: bottom + 16)
         profileButton.frame = CGRect(x: 0, y: top - 8, width: width, height: acctLabel.frame.maxY + 16 - top)
         for (index, button) in menuButtons.enumerated() {

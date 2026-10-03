@@ -229,6 +229,28 @@ struct SignInTests {
         #expect(store.current == nil && store.accounts.isEmpty)
     }
 
+    @MainActor
+    @Test func tokensAreReadOnceAndForgottenOnSignOut() throws {
+        let defaults = try #require(UserDefaults(suiteName: "hibari-tests-\(UUID().uuidString)"))
+        let tokens = InMemoryTokenStore()
+        let alice = try account("u1")
+        let bob = try account("u2")
+        try AccountStore(defaults: defaults, tokens: tokens).signIn(alice, token: "A")
+        try AccountStore(defaults: defaults, tokens: tokens).signIn(bob, token: "B")
+
+        let store = AccountStore(defaults: defaults, tokens: tokens)
+        try tokens.setToken("changed elsewhere", for: alice.id)
+        #expect(store.token(for: alice) == "A", "read once, when the store loads")
+
+        store.signOut(alice)
+        #expect(store.token(for: alice) == nil && tokens.token(for: alice.id) == nil)
+        store.signOutAll()
+        #expect(store.token(for: bob) == nil && tokens.token(for: bob.id) == nil)
+
+        try store.signIn(alice, token: "A2")
+        #expect(store.token(for: alice) == "A2")
+    }
+
     @Test func keychainStoresTokens() throws {
         let store = KeychainTokenStore(service: "hibari-tests-\(UUID().uuidString)")
         #expect(store.token(for: "a") == nil)

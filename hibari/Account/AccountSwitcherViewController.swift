@@ -185,17 +185,21 @@ extension AccountSwitcherViewController: UITableViewDataSource, UITableViewDeleg
     }
 
     func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
-        tableView.isEditing && indexPath.section == 0 ? .delete : .none
+        indexPath.section == 0 ? .delete : .none
     }
 
-    func tableView(_ tableView: UITableView, titleForDeleteConfirmationButtonForRowAt indexPath: IndexPath) -> String? {
-        "ログアウト"
-    }
-
-    func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle,
-                   forRowAt indexPath: IndexPath) {
-        guard editingStyle == .delete, indexPath.section == 0 else { return }
-        onSignOut?(rows[indexPath.row])
+    /// Also behind 編集's red minus. No full swipe: signing back in takes a trip to the server.
+    func tableView(_ tableView: UITableView,
+                   trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        guard indexPath.section == 0 else { return nil }
+        let account = rows[indexPath.row]
+        let signOut = UIContextualAction(style: .destructive, title: "ログアウト") { [weak self] _, _, done in
+            self?.onSignOut?(account)
+            done(true)
+        }
+        let configuration = UISwipeActionsConfiguration(actions: [signOut])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
     }
 }
 

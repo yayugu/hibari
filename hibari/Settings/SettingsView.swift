@@ -4,8 +4,8 @@ import UIKit
 final class SettingsViewController: UIViewController {
     private let form: UIHostingController<SettingsView>
     
-    init(account: Account) {
-        form = UIHostingController(rootView: SettingsView(account: account))
+    init(account: Account, onSignOut: @escaping () -> Void = {}) {
+        form = UIHostingController(rootView: SettingsView(account: account, onSignOut: onSignOut))
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -25,11 +25,14 @@ final class SettingsViewController: UIViewController {
 
 struct SettingsView: View {
     let account: Account
+    var onSignOut: () -> Void = {}
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppSettings.appearance
     @AppStorage private var sensitiveMedia: SensitiveMediaDisplay
+    @State private var confirmsSignOut = false
     
-    init(account: Account) {
+    init(account: Account, onSignOut: @escaping () -> Void = {}) {
         self.account = account
+        self.onSignOut = onSignOut
         _sensitiveMedia = AppStorage(wrappedValue: AppSettings.sensitiveMedia(for: account),
                                      AppSettings.sensitiveMediaKey(for: account))
     }
@@ -57,6 +60,18 @@ struct SettingsView: View {
                 link("ソースコード", AppLinks.source, detail: "GitHub")
                 link("ライセンス", AppLinks.license, detail: "MIT")
             }
+            Section {
+                Button("ログアウト", role: .destructive) { confirmsSignOut = true }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("settings.signOut")
+            } footer: {
+                Text("\(account.acct) からログアウトします")
+            }
+        }
+        .confirmationDialog("ログアウトしますか？", isPresented: $confirmsSignOut, titleVisibility: .visible) {
+            Button("ログアウト", role: .destructive, action: onSignOut)
+        } message: {
+            Text(account.acct)
         }
         .onChange(of: appearance) {
             NotificationCenter.default.post(name: AppSettings.didChange, object: nil)

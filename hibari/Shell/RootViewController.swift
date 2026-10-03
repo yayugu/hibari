@@ -24,6 +24,8 @@ final class RootViewController: UIViewController {
     var onShowAccounts: (() -> Void)? {
         didSet { bottomBar.onLongPressHome = onShowAccounts }
     }
+    /// Tapped "ログアウト" in the settings.
+    var onSignOut: (() -> Void)?
     /// The server rejected the account's token.
     var onAuthenticationFailure: (() -> Void)? {
         didSet {
@@ -321,7 +323,8 @@ final class RootViewController: UIViewController {
     func showSettings() {
         let stack = selectedStack
         stack.popToRootViewController(animated: false)
-        stack.pushViewController(SettingsViewController(account: session.account), animated: false)
+        let settings = SettingsViewController(account: session.account) { [weak self] in self?.onSignOut?() }
+        stack.pushViewController(settings, animated: false)
     }
 }
 

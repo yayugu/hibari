@@ -169,6 +169,7 @@ final class AppRouter {
         root.onAuthenticationFailure = { [weak self] in self?.authenticationFailed(account) }
         root.onOpenDrawer = { [weak self] in self?.container?.open(animated: true, byUser: true) }
         root.onShowAccounts = { [weak self] in self?.showAccountSwitcher() }
+        root.onSignOut = { [weak self] in self?.signOut(account) }
         self.root = root
         if let container {
             container.setContent(root, animated: animated)

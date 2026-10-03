@@ -3,7 +3,7 @@ import UIKit
 @MainActor
 final class PullToRefresh {
     static let triggerDistance: CGFloat = 30
-    static let minimumDuration: TimeInterval = 0.8
+    static let minimumDuration: TimeInterval = 0.6
     private static let room: CGFloat = 40
 
     var onRefresh: (() -> Void)?
@@ -13,6 +13,9 @@ final class PullToRefresh {
     /// Extra room at the top of the content while refreshing.
     private(set) var inset: CGFloat = 0
     private(set) var isRefreshing = false
+    /// A refresh started by `beginRefreshing()` keeps the spinner up until then, even when
+    /// it is done sooner, so the whole animation plays; the owner holds its update until then.
+    private(set) var holdsUntil = Date.distantPast
 
     private weak var scrollView: UIScrollView?
     private let spinner = UIActivityIndicatorView(style: .medium)
@@ -63,6 +66,7 @@ final class PullToRefresh {
         guard !isRefreshing, let scrollView else { return }
         isRefreshing = true
         startedAt = Date()
+        holdsUntil = startedAt.addingTimeInterval(Self.minimumDuration)
         spinner.startAnimating()
         UIView.animate(withDuration: 0.3, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.spinner.alpha = 1
@@ -74,10 +78,11 @@ final class PullToRefresh {
     }
 
     /// `foundNew`: the refresh brought something new, which shows right away; otherwise
-    /// the spinner stays for `minimumDuration`.
+    /// the spinner stays for `minimumDuration`. Either way it stays until `holdsUntil`.
     func endRefreshing(foundNew: Bool = true) {
         guard isRefreshing, pendingEnd == nil else { return }
-        let remaining = foundNew ? 0 : Self.minimumDuration - Date().timeIntervalSince(startedAt)
+        let remaining = max(foundNew ? 0 : Self.minimumDuration - Date().timeIntervalSince(startedAt),
+                            holdsUntil.timeIntervalSinceNow)
         guard remaining > 0 else {
             finish()
             return

@@ -536,6 +536,7 @@ final class TimelineViewController: UIViewController {
                     update = RefreshUpdate(items: items, layouts: await prepare(items),
                                            changed: [], replacing: true, gapBelow: nil)
                 }
+                await self.waitForSpinner()
                 await self.finishRefresh(update, newest: entries.first?.id, cursor: page.cursor,
                                          isEnd: page.cursor == nil, keepingPosition: keepingPosition)
             } catch {
@@ -954,6 +955,12 @@ final class TimelineViewController: UIViewController {
     func refreshShowingSpinner() {
         guard let pullToRefresh else { return refresh() }
         pullToRefresh.beginRefreshing()
+    }
+
+    /// Waits while the spinner of a tapped refresh is held, so its update lands as it goes away.
+    private func waitForSpinner() async {
+        guard let wait = pullToRefresh?.holdsUntil.timeIntervalSinceNow, wait > 0 else { return }
+        try? await Task.sleep(for: .seconds(wait))
     }
 
     func scrollToTop(animated: Bool) {

@@ -192,9 +192,11 @@ struct TimelineItem: Sendable {
     }
 
     /// What a list shows only once (`TimelineEntries`): the note shown, the renoted one for
-    /// a renote. nil for notifications, also those shown as their note.
-    var shownNoteID: String? {
+    /// a renote. nil for notifications, also those shown as their note, and for the
+    /// account's own renotes: they always show.
+    func shownNoteID(accountUserID: String?) -> String? {
         guard let note, note.id == id else { return nil }
+        if note.isPureRenote, note.user.id == accountUserID { return nil }
         return note.displayedNote.id
     }
 

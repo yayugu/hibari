@@ -115,10 +115,10 @@ struct TimelineTests {
         #expect(entries.integrate(engine.layouts(for: items, context: wider), onScreen: [1], expectedKey: widerKey) == [0, 1, 2])
     }
 
-    private func renote(_ id: String, of note: Note) throws -> TimelineItem {
+    private func renote(_ id: String, of note: Note, by userID: String = "r") throws -> TimelineItem {
         let object: [String: Any] = [
             "id": id, "createdAt": "2026-09-23T15:00:00.000Z",
-            "user": ["id": "r", "username": "renoter"], "renoteId": note.id,
+            "user": ["id": userID, "username": "renoter"], "renoteId": note.id,
             "renote": try JSONSerialization.jsonObject(with: MisskeyJSON.encoder().encode(note)),
         ]
         let data = try JSONSerialization.data(withJSONObject: object)
@@ -143,6 +143,17 @@ struct TimelineTests {
         #expect(!entries.showsNote(of: TimelineItem(note: b)))
         entries.append([TimelineItem(note: b)], layouts: layouts([TimelineItem(note: b)]))
         #expect(entries.items.map(\.id) == [a.id, c.id, b.id])
+    }
+
+    @Test func theAccountsRenotesShowEvenWhenTheNoteDoes() throws {
+        let b = Samples.distinctItems.compactMap(\.note).filter { $0.renote == nil }[6]
+        var entries = TimelineEntries(accountUserID: "me")
+        let batch = [try renote("x-1", of: b, by: "me"), TimelineItem(note: b), try renote("x-2", of: b)]
+        entries.append(batch, layouts: layouts(batch))
+        #expect(entries.items.map(\.id) == ["x-1", b.id])
+
+        let fresh = [try renote("x-3", of: b, by: "me")]
+        #expect(entries.prepend(fresh, layouts: layouts(fresh)) == 1)
     }
 
     private func entries(_ ids: [Int]) -> (TimelineEntries, [TimelineItem]) {

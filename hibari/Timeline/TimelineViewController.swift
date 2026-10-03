@@ -58,7 +58,7 @@ final class TimelineViewController: UIViewController {
     private(set) lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: listLayout)
     private let listLayout = TimelineCollectionLayout()
 
-    private var entries = TimelineEntries()
+    private var entries: TimelineEntries
     private lazy var sensitiveMedia = services.sensitiveMedia
     private var context: LayoutContext?
     private var clockTime: Date
@@ -106,6 +106,7 @@ final class TimelineViewController: UIViewController {
         renderer = services.renderer
         imagePipeline = services.imagePipeline
         clockTime = clock.now()
+        entries = TimelineEntries(accountUserID: services.account.userID)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -557,7 +558,8 @@ final class TimelineViewController: UIViewController {
     }
 
     private func entryFilter() -> EntryFilter {
-        EntryFilter(sensitiveMedia: sensitiveMedia, marks: services.marks, shownBefore: shownBefore)
+        EntryFilter(sensitiveMedia: sensitiveMedia, marks: services.marks, shownBefore: shownBefore,
+                    accountUserID: services.account.userID)
     }
 
     private func layoutPreparation(context: LayoutContext) -> @Sendable ([TimelineItem]) async -> [NoteLayout] {
@@ -1034,6 +1036,7 @@ private struct EntryFilter: Sendable {
     let sensitiveMedia: SensitiveMediaDisplay
     let marks: NoteMarks
     let shownBefore: [String: Date]
+    let accountUserID: String
 
     /// The entries of a response that can be shown and are not in the list yet, with the
     /// account's renotes and bookmarks marked. Notifications shown as notes are left out
@@ -1056,7 +1059,7 @@ private struct EntryFilter: Sendable {
             }
             guard !note.isUnavailableRenote, sensitiveMedia.shows(note) else { return nil }
             let item = TimelineItem(id: entry.id, note: marks.apply(to: note))
-            if let noteID = item.shownNoteID {
+            if let noteID = item.shownNoteID(accountUserID: accountUserID) {
                 guard !known.showsNote(of: item), !(note.isPureRenote && shownBefore[noteID] != nil),
                       shown.insert(noteID).inserted
                 else { return nil }

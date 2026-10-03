@@ -12,6 +12,8 @@ struct TimelineGap: Sendable, Equatable {
 }
 
 struct TimelineEntries: Sendable {
+    /// Whose renotes show even when the note does (see `TimelineItem.shownNoteID`).
+    let accountUserID: String?
     private(set) var items: [TimelineItem] = []
     private(set) var layouts: [NoteLayout] = []
     /// Newest first.
@@ -19,6 +21,10 @@ struct TimelineEntries: Sendable {
     private var indexByID: [String: Int] = [:]
     private var shownNoteIDs: Set<String> = []
     private var nextGapID = 1
+
+    init(accountUserID: String? = nil) {
+        self.accountUserID = accountUserID
+    }
 
     var count: Int { items.count }
     var isEmpty: Bool { items.isEmpty }
@@ -29,11 +35,15 @@ struct TimelineEntries: Sendable {
 
     /// Whether the list shows the note `item` shows (see `TimelineItem.shownNoteID`).
     func showsNote(of item: TimelineItem) -> Bool {
-        item.shownNoteID.map(shownNoteIDs.contains) ?? false
+        shownNoteID(of: item).map(shownNoteIDs.contains) ?? false
     }
 
     /// The notes shown (renoted ones for renotes), for `TimelineItem.shownNoteID`.
     var shownNotes: Set<String> { shownNoteIDs }
+
+    private func shownNoteID(of item: TimelineItem) -> String? {
+        item.shownNoteID(accountUserID: accountUserID)
+    }
 
     func gap(_ id: Int) -> TimelineGap? {
         gaps.first { $0.id == id }
@@ -87,7 +97,7 @@ struct TimelineEntries: Sendable {
         var notes = Set<String>()
         return zip(newItems, newLayouts).filter { item, _ in
             guard indexByID[item.id] == nil, !showsNote(of: item), ids.insert(item.id).inserted else { return false }
-            return item.shownNoteID.map { notes.insert($0).inserted } ?? true
+            return shownNoteID(of: item).map { notes.insert($0).inserted } ?? true
         }
     }
 
@@ -97,7 +107,7 @@ struct TimelineEntries: Sendable {
         let start = items.count
         for (item, layout) in fresh(newItems, newLayouts) {
             indexByID[item.id] = items.count
-            if let note = item.shownNoteID { shownNoteIDs.insert(note) }
+            if let note = shownNoteID(of: item) { shownNoteIDs.insert(note) }
             items.append(item)
             layouts.append(layout)
         }
@@ -165,7 +175,7 @@ struct TimelineEntries: Sendable {
     mutating func restore(_ newItems: [TimelineItem], layouts newLayouts: [NoteLayout],
                           gaps saved: [(newerID: String, olderID: String)]) {
         let nextGapID = self.nextGapID
-        self = TimelineEntries()
+        self = TimelineEntries(accountUserID: accountUserID)
         self.nextGapID = nextGapID
         append(newItems, layouts: newLayouts)
         for gap in saved {
@@ -197,7 +207,7 @@ struct TimelineEntries: Sendable {
 
     private mutating func rebuildIndex() {
         indexByID = Dictionary(uniqueKeysWithValues: items.enumerated().map { ($1.id, $0) })
-        shownNoteIDs = Set(items.compactMap(\.shownNoteID))
+        shownNoteIDs = Set(items.compactMap(shownNoteID(of:)))
     }
 
     /// Puts newer versions of entries in their place (a group of notifications that grew),

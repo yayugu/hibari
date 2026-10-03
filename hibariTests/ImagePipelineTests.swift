@@ -157,16 +157,19 @@ struct ImagePipelineTests {
 
         recovered.withLock { $0 = true }
         await pipeline.prepareSizes(of: [url], timeout: .seconds(5))
-        await Task { @MainActor in }.value
+        for _ in 0..<150 where announcements.count == 0 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(pipeline.mediaSize(for: url) == .known(CGSize(width: 384, height: 96)))
         let image = try #require(pipeline.imageSynchronously(for: request))
         #expect((image.width, image.height) == (80, 20))
         #expect(announcements.count == 1)
-        let completedRequests = requests.count
+        let expectedRequests = failure == "transport" ? 5 : 3
+        #expect(requests.count == expectedRequests)
         await pipeline.prepareSizes(of: [url], timeout: .seconds(5))
         await Task { @MainActor in }.value
         #expect(announcements.count == 1)
-        #expect(requests.count == completedRequests)
+        #expect(requests.count == expectedRequests)
     }
 
     @Test func notesAreRedrawnWhenAMissingEmojiArrives() async throws {

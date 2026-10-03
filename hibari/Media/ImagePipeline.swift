@@ -262,14 +262,12 @@ final class ImagePipeline: MediaSizeProvider, @unchecked Sendable {
     }
 
     private func prepareSize(of url: String) async -> Bool {
-        let size: MediaSize
-        if await emojiSource.prepare(url),
-           let pixels = emojiSource.imageSource(for: url).flatMap(ImageMetadata.pixelSize(of:)) {
-            size = .known(pixels)
-        } else {
-            size = .unavailable
-        }
+        _ = await emojiSource.prepare(url)
+        let pixels = emojiSource.imageSource(for: url).flatMap(ImageMetadata.pixelSize(of:))
+        let size = pixels.map(MediaSize.known) ?? emojiSource.mediaSize(for: url)
         let wasMissed = sizes.withLock { sizes in
+            guard size != .unknown else { return false }
+            if case .known = sizes.learned[url], pixels == nil { return false }
             sizes.learned[url] = size
             return sizes.missed.remove(url) != nil
         }
@@ -278,7 +276,7 @@ final class ImagePipeline: MediaSizeProvider, @unchecked Sendable {
                 NotificationCenter.default.post(name: Self.mediaSizesDidChange, object: self)
             }
         }
-        return size != .unavailable
+        return pixels != nil
     }
 
     private enum Produced {

@@ -22,7 +22,7 @@ protocol MediaSource: MediaSizeProvider {
     func imageSource(for url: String) -> CGImageSource?
 
     /// Makes the media local (downloads it), so the other methods can answer. Returns
-    /// false if it is unavailable.
+    /// false if it could not be made local.
     func prepare(_ url: String) async -> Bool
 
     /// The raw file, if it is local (sharing the original, playing animated images).

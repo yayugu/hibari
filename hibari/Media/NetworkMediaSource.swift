@@ -75,6 +75,10 @@ final class NetworkMediaSource: MediaSource {
             do {
                 let (file, response) = try await session.download(from: requestURL)
                 defer { try? FileManager.default.removeItem(at: file) }
+                if let http = response as? HTTPURLResponse,
+                   http.statusCode == 408 || http.statusCode == 429 || (500...599).contains(http.statusCode) {
+                    return false
+                }
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
                       isImage(file, response: http)
                 else {

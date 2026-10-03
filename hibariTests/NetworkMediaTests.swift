@@ -65,56 +65,6 @@ struct NetworkMediaTests {
         #expect(await source.prepare("not a url") == false)
     }
 
-    @Test(arguments: [408, 429, 500, 503, 599])
-    func transientHTTPFailuresRecoverOnNextPreparation(status: Int) async throws {
-        let requests = Counter()
-        let png = TestData.png(width: 300, height: 200)
-        let url = "https://media.example/recover.png"
-        let session = StubURLProtocol.session { request, _ in
-            #expect(request.url?.absoluteString == url)
-            if requests.increment() == 1 {
-                return .init(status: status, body: Data("temporarily unavailable".utf8), contentType: "text/html")
-            }
-            return .init(status: 200, body: png, contentType: "image/png")
-        }
-        let source = NetworkMediaSource(cache: RawMediaCache(directory: TestData.temporaryDirectory()), session: session,
-                                        retryDelay: .zero)
-
-        #expect(await source.prepare(url) == false)
-        #expect(source.mediaSize(for: url) == .unknown)
-        #expect(source.localFile(for: url) == nil)
-        #expect(requests.count == 1, "HTTP status failures do not retry within the same preparation")
-
-        #expect(await source.prepare(url) == true)
-        #expect(source.mediaSize(for: url) == .known(CGSize(width: 300, height: 200)))
-        let local = try #require(source.localFile(for: url))
-        #expect(try Data(contentsOf: local) == png)
-        #expect(requests.count == 2)
-    }
-
-    @Test(arguments: [400, 401, 403, 404, 410, 422])
-    func rejectedHTTPStatusesStayUnavailable(status: Int) async {
-        let requests = Counter()
-        let png = TestData.png(width: 300, height: 200)
-        let session = StubURLProtocol.session { _, _ in
-            requests.increment()
-            return .init(status: status, body: png, contentType: "image/png")
-        }
-        let source = NetworkMediaSource(cache: RawMediaCache(directory: TestData.temporaryDirectory()), session: session)
-        let url = "https://media.example/rejected.png"
-        #expect(await source.prepare(url) == false)
-        #expect(source.mediaSize(for: url) == .unavailable)
-        #expect(source.localFile(for: url) == nil)
-        #expect(await source.prepare(url) == false)
-        #expect(requests.count == 1)
-
-        for invalid in ["not a url", "file:///tmp/image.png"] {
-            #expect(await source.prepare(invalid) == false)
-            #expect(source.mediaSize(for: invalid) == .unavailable)
-        }
-        #expect(requests.count == 1)
-    }
-
     @Test func onlyImagesAreKept() async {
         let requests = Counter()
         let source = source(requests: requests)

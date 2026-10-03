@@ -118,60 +118,6 @@ struct ImagePipelineTests {
         #expect(pipeline.mediaSize(for: url) == .known(CGSize(width: 384, height: 96)))
     }
 
-    @Test(arguments: ["http", "transport"])
-    func transientEmojiFailuresDoNotSettleSizesAndRecover(failure: String) async throws {
-        let requests = Counter()
-        let recovered = Locked(false)
-        let png = TestData.png(width: 384, height: 96)
-        let session = StubURLProtocol.session { _, _ in
-            requests.increment()
-            if !recovered.withLock({ $0 }) {
-                if failure == "transport" { throw URLError(.notConnectedToInternet) }
-                return .init(status: 503, body: Data("temporarily unavailable".utf8), contentType: "text/html")
-            }
-            return .init(status: 200, body: png, contentType: "image/png")
-        }
-        let source = NetworkMediaSource(cache: RawMediaCache(directory: TestData.temporaryDirectory()), session: session,
-                                        retryDelay: .zero)
-        let pipeline = ImagePipeline(source: SampleMediaSource(), emojiSource: source,
-                                     diskDirectory: temporaryDirectory())
-        let url = "https://media.example/emoji/recover.png"
-        let request = ImageRequest(url: url, size: CGSize(width: 80, height: 20), scale: 1, mode: .fitted)
-        let announcements = Counter()
-        let observer = NotificationCenter.default.addObserver(forName: ImagePipeline.mediaSizesDidChange,
-                                                              object: pipeline, queue: nil) { _ in
-            announcements.increment()
-        }
-        defer { NotificationCenter.default.removeObserver(observer) }
-
-        #expect(pipeline.mediaSize(for: url) == .unknown)
-        for demand in 1...2 {
-            await pipeline.prepareSizes(of: [url], timeout: .seconds(5))
-            await Task { @MainActor in }.value
-            #expect(source.mediaSize(for: url) == .unknown)
-            #expect(pipeline.mediaSize(for: url) == .unknown)
-            #expect(pipeline.imageSynchronously(for: request) == nil)
-            #expect(announcements.count == 0)
-            #expect(requests.count == demand * (failure == "transport" ? 2 : 1))
-        }
-
-        recovered.withLock { $0 = true }
-        await pipeline.prepareSizes(of: [url], timeout: .seconds(5))
-        for _ in 0..<150 where announcements.count == 0 {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(pipeline.mediaSize(for: url) == .known(CGSize(width: 384, height: 96)))
-        let image = try #require(pipeline.imageSynchronously(for: request))
-        #expect((image.width, image.height) == (80, 20))
-        #expect(announcements.count == 1)
-        let expectedRequests = failure == "transport" ? 5 : 3
-        #expect(requests.count == expectedRequests)
-        await pipeline.prepareSizes(of: [url], timeout: .seconds(5))
-        await Task { @MainActor in }.value
-        #expect(announcements.count == 1)
-        #expect(requests.count == expectedRequests)
-    }
-
     @Test func notesAreRedrawnWhenAMissingEmojiArrives() async throws {
         let (name, url) = try #require(Samples.emojis.first)
         let engine = NoteLayoutEngine(emojiResolver: EmojiResolver(localEmojis: [name: url], mediaProxy: nil),

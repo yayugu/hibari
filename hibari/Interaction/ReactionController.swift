@@ -84,6 +84,16 @@ final class ReactionController {
         }
     }
 
+    /// Runs `action` once the server has every reaction change made to the note so far
+    /// (right away if none is on its way).
+    func whenSaved(_ noteID: String, _ action: @escaping @MainActor () -> Void) {
+        guard let queue = queues[noteID] else { return action() }
+        Task {
+            await queue.value
+            action()
+        }
+    }
+
     /// What to send to react like a chip: local custom emojis as `:name:`, remote ones as
     /// the local emoji of the same name if there is one.
     nonisolated static func reaction(forKey key: String, emojis: EmojiCatalog) throws(Refusal) -> String {

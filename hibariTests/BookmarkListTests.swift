@@ -25,6 +25,12 @@ struct BookmarkListTests {
                     return Array(ids.dropFirst(start).prefix(body["limit"] as? Int ?? 20))
                 }
                 return .json(page.map { ["id": "f-\($0)", "note": TestData.note(id: $0)] })
+            case "/api/notes/favorites/create":
+                ids.withLock { ids in
+                    guard let noteID = body["noteId"] as? String, !ids.contains(noteID) else { return }
+                    ids.insert(noteID, at: 0)
+                }
+                return StubURLProtocol.Response(status: 204)
             case "/api/notes/favorites/delete":
                 if rejectsDeletion {
                     return .json(["error": ["code": "INTERNAL_ERROR", "message": "failed"]], status: 500)
@@ -75,6 +81,38 @@ struct BookmarkListTests {
             #expect(screen.timeline.collectionView.numberOfItems(inSection: 0) == remaining)
         }
         #expect(!screen.timeline.hasMorePages)
+    }
+
+    @Test func aHeldListShowsTheRowGoingWhenTheHoldEnds() async throws {
+        let screen = try await screen(Server())
+        let timeline = screen.timeline
+        let note = try #require(timeline.item(forNote: "n1")?.note)
+        let hold = timeline.listHold.begin()
+        screen.services.bookmarks.toggle(note)
+        TimelineTestSupport.layout(timeline)
+        #expect(!timeline.contains(noteID: "n1") && timeline.noteCount == 1)
+        #expect(timeline.collectionView.numberOfItems(inSection: 0) == 2 && timeline.indexPath(forNote: "n1") != nil)
+        hold.end()
+        TimelineTestSupport.layout(timeline)
+        #expect(timeline.collectionView.numberOfItems(inSection: 0) == 1 && timeline.indexPath(forNote: "n1") == nil)
+    }
+
+    @Test func bookmarkingAgainWhileHeldPlaysTheChangesInOrder() async throws {
+        let server = Server()
+        let screen = try await screen(server)
+        let timeline = screen.timeline
+        let note = try #require(timeline.item(forNote: "n2")?.note)
+        let hold = timeline.listHold.begin()
+        for _ in 0..<4 {
+            screen.services.bookmarks.toggle(note)
+        }
+        hold.end()
+        try await wait {
+            TimelineTestSupport.layout(timeline)
+            return server.ids.withLock { $0 == ["n2", "n1"] } && timeline.indexPath(forNote: "n2") != nil
+        }
+        #expect(timeline.collectionView.numberOfItems(inSection: 0) == 2)
+        #expect(screen.services.bookmarks.isBookmarked(note))
     }
 
     @Test func aFailedDeletionRestoresTheBookmarkRow() async throws {

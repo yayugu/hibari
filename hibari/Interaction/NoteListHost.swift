@@ -4,6 +4,9 @@ import UIKit
 protocol NoteListHost: UIViewController {
     var services: NoteServices { get }
     var collectionView: UICollectionView { get }
+    /// Keeps the rows still while a button's answer to a tap plays on one.
+    var listHold: ListHold { get }
+    /// Where the note `noteID` (a timeline item id) is on screen.
     func indexPath(forNote noteID: String) -> IndexPath?
     /// The note shown with the id `noteID` (a timeline item id).
     func item(forNote noteID: String) -> TimelineItem?
@@ -56,11 +59,11 @@ extension NoteListHost {
             services.reactButtonTapped(note, from: self, origin: origin(of: .react))
         case .renote:
             services.renoteTapped(note, from: self) { [weak self] renoted in
-                self?.noteCell(for: item.id)?.playIconAnimation(renoted ? .renote : .undoRenote, onNote: item.id)
+                self?.playActionAnimation(renoted ? .renote : .undoRenote, onNote: item.id)
             }
         case .bookmark:
-            services.bookmarkTapped(note) { bookmarked in
-                cell?.playIconAnimation(.bookmark(bookmarked), onNote: item.id)
+            services.bookmarkTapped(note) { [weak self] bookmarked in
+                self?.playActionAnimation(.bookmark(bookmarked), onNote: item.id)
             }
         case .share:
             services.share(note, from: self)
@@ -160,6 +163,20 @@ extension NoteListHost {
 
     func noteCell(for noteID: String) -> NoteCell? {
         indexPath(forNote: noteID).flatMap { collectionView.cellForItem(at: $0) as? NoteCell }
+    }
+
+    /// Plays `kind` on the row of the note `noteID`, holding the list meanwhile and a moment
+    /// after: a change it answers (the row going, a bookmark taken off in the bookmarks)
+    /// shows once it is done, and the cell playing it stays the same one till then.
+    func playActionAnimation(_ kind: ActionIconAnimation.Kind, onNote noteID: String) {
+        guard let cell = noteCell(for: noteID), let animation = cell.playActionAnimation(kind) else { return }
+        // A moment to see where it ended up.
+        listHold.hold(for: kind.duration + 0.15) { [weak self, weak cell] in
+            // A row going keeps it while it goes (under it is the icon from before), until its
+            // cell is reused.
+            guard self?.indexPath(forNote: noteID) != nil else { return }
+            cell?.endActionAnimation(animation)
+        }
     }
 
     func openMedia(_ media: MediaRef, of item: TimelineItem) {

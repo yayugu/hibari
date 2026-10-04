@@ -61,6 +61,16 @@ final class BookmarkController {
         if count <= 0 { queues[noteID] = nil }
     }
 
+    /// Runs `action` once the server has every change made to the note's bookmark so far
+    /// (right away if none is on its way).
+    func whenSaved(_ noteID: String, _ action: @escaping @MainActor () -> Void) {
+        guard let queue = queues[noteID] else { return action() }
+        Task {
+            await queue.value
+            action()
+        }
+    }
+
     /// Asks the server whether the note is bookmarked (the post screen), unless the
     /// account is changing that.
     func refresh(_ noteID: String) {

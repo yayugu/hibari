@@ -245,6 +245,39 @@ struct TimelineRefreshTests {
         #expect(screen.timeline.gapCount == 0)
     }
 
+    @Test func changesWhileHeldShowTogetherWhenTheHoldEnds() async throws {
+        let server = Server()
+        let screen = try await screen(.timeline(.home), server: server)
+        let timeline = screen.timeline
+        let hold = timeline.listHold.begin()
+        timeline.remove(noteID: "n005")
+        server.update(["n008", "n007", "n006", "n004", "n003"])
+        await TimelineTestSupport.refresh(timeline)
+        #expect(timeline.noteCount == 5 && !timeline.contains(noteID: "n005") && timeline.contains(noteID: "n008"))
+        #expect(timeline.collectionView.numberOfItems(inSection: 0) == 4)
+        #expect(timeline.indexPath(forNote: "n005") != nil && timeline.indexPath(forNote: "n008") == nil)
+        hold.end()
+        TimelineTestSupport.layout(timeline)
+        expectIDs(["n008", "n007", "n006", "n004", "n003"], in: timeline)
+    }
+
+    @Test func aRefreshAskedForWhileOneIsUnderWayFollowsIt() async throws {
+        let server = Server()
+        let screen = try await screen(.bookmarks, server: server)
+        server.cursors.withLock { $0.removeAll() }
+        TimelineTestSupport.layout(screen.timeline)
+        await withCheckedContinuation { continuation in
+            screen.timeline.refresh()
+            server.update(["n007", "n006"])
+            screen.timeline.refresh {
+                TimelineTestSupport.layout(screen.timeline)
+                continuation.resume()
+            }
+        }
+        expectIDs(["n007", "n006"], in: screen.timeline)
+        #expect(server.cursors.withLock { $0 }.filter { $0 == nil }.count == 2, "the newest page, twice")
+    }
+
     @Test func undoingARenoteRemovesItsRowInTheCommonController() async throws {
         let server = Server(renoteID: "n005")
         let screen = try await screen(.profile(.all), server: server)

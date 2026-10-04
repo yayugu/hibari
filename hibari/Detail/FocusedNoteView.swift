@@ -180,15 +180,19 @@ final class FocusedNoteView: UIView {
     }
 
     /// Plays `kind` over its button's icon.
-    func playIconAnimation(_ kind: ActionIconAnimation.Kind) {
+    func playActionAnimation(_ kind: ActionIconAnimation.Kind) {
         let button = kind.action == .renote ? renoteButton : bookmarkButton
         guard let imageView = button.imageView, imageView.bounds.width > 0 else { return }
         let palette = Palette.palette(for: ThemeStyle(traitCollection.userInterfaceStyle))
-        let animation = ActionIconAnimation.play(kind, frame: imageView.convert(imageView.bounds, to: self),
-                                                 cover: palette[.background], palette: palette,
-                                                 scale: traitCollection.displayScale, in: layer)
+        guard let animation = ActionIconAnimation.play(kind, frame: imageView.convert(imageView.bounds, to: self),
+                                                       cover: palette[.background], palette: palette,
+                                                       scale: traitCollection.displayScale, in: layer)
+        else { return }
         // The image the button changes to waits under the cover until it is done.
-        animation?.zPosition = 1
+        animation.zPosition = 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + kind.duration) {
+            animation.removeFromSuperlayer()
+        }
     }
 
     /// Where media `index` of `owner` is shown, in window coordinates.

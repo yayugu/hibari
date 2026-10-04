@@ -20,12 +20,18 @@ enum ActionIconAnimation {
             }
         }
 
+        /// Everything in it is done by then, sparks included.
         var duration: CFTimeInterval {
             switch self {
             case .renote: 0.72
             case .undoRenote: 0.42
             case .bookmark: 0.32
             }
+        }
+
+        /// Its sparks fly out past the row it plays in.
+        var reachesOutside: Bool {
+            if case .renote = self { true } else { false }
         }
 
         var icon: (Icon, ColorRole) {
@@ -37,9 +43,9 @@ enum ActionIconAnimation {
         }
     }
 
-    /// `frame`: the icon's, in `host`'s coordinates. Returns the layer playing it (taken
-    /// out by itself when done), nil with Reduce Motion.
-    @discardableResult
+    /// `frame`: the icon's, in `host`'s coordinates. Returns the layer playing it, nil with
+    /// Reduce Motion. Once done (`kind.duration`) it shows the new icon as drawn, still over
+    /// the patch, until the caller takes it out.
     static func play(_ kind: Kind, frame: CGRect, cover: CGColor, palette: Palette, scale: CGFloat,
                      in host: CALayer) -> CALayer? {
         guard !UIAccessibility.isReduceMotionEnabled else { return nil }
@@ -77,10 +83,6 @@ enum ActionIconAnimation {
         }
         container.addSublayer(iconLayer)
         CATransaction.commit()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-            container.removeFromSuperlayer()
-        }
         return container
     }
 

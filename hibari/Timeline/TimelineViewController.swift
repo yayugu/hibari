@@ -58,7 +58,27 @@ final class TimelineViewController: UIViewController {
     private(set) lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: listLayout)
     private let listLayout = TimelineCollectionLayout()
 
+    /// What the list holds. Every change lands here at once, and what the list decides on
+    /// (what it has, what to fetch next) reads it.
     private var entries: TimelineEntries
+    /// What the collection view shows: `entries` as `presentEntries()` last showed them,
+    /// behind while the list is held. What is about the screen (rows, positions, cells)
+    /// reads it.
+    private var presented: TimelineEntries
+    /// Keeps the rows still while a button's answer to a tap plays on one.
+    let listHold = ListHold()
+    private var presentation = Presentation()
+    /// The refresh under way puts new notes above the screen.
+    private var refreshKeepsPosition = false
+    /// A refresh asked for while one was under way (or the list was being restored): what it
+    /// is for may have come after that one started, so it follows.
+    private var nextRefresh: RefreshRequest?
+
+    private struct RefreshRequest {
+        var startingOver = false
+        var keepingPosition = false
+        var waiters: [() -> Void] = []
+    }
     private lazy var sensitiveMedia = services.sensitiveMedia
     private var context: LayoutContext?
     private var clockTime: Date
@@ -107,6 +127,7 @@ final class TimelineViewController: UIViewController {
         imagePipeline = services.imagePipeline
         clockTime = clock.now()
         entries = TimelineEntries(accountUserID: services.account.userID)
+        presented = entries
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -134,8 +155,8 @@ final class TimelineViewController: UIViewController {
 
     /// Puts the top of the screen `count` notes below the first gap.
     func scrollBelowFirstGap(by count: Int) {
-        guard let gap = entries.gaps.first else { return }
-        let index = min(entries.count - 1, entries.position(of: gap) + 1 + count)
+        guard let gap = presented.gaps.first else { return }
+        let index = min(presented.count - 1, presented.position(of: gap) + 1 + count)
         guard let offset = listLayout.offset(ofItem: index) else { return }
         collectionView.contentOffset.y = offset - collectionView.adjustedContentInset.top
     }
@@ -168,6 +189,7 @@ final class TimelineViewController: UIViewController {
             pull.onInsetChange = { [weak self] in self?.applyInsets() }
             pullToRefresh = pull
         }
+        listHold.onRelease = { [weak self] in self?.presentEntries() }
         newNotesButton.isHidden = true
         newNotesButton.addAction(UIAction { [weak self] _ in
             self?.hideNewNotesButton()
@@ -275,8 +297,8 @@ final class TimelineViewController: UIViewController {
         guard !stale.now.isEmpty else { return }
         isRelayingOut = true
         let items = stale.now.map { entries.items[$0] }
-        let window = prefetchWindow(around: visibleItemRange)
-        let onScreen = Set(stale.now.filter { window.contains($0) }.map { entries.items[$0].id })
+        let nearby = Set(prefetchWindow(around: visibleItemRange).map { presented.items[$0].id })
+        let onScreen = Set(items.lazy.map(\.id).filter(nearby.contains))
         let renderer = self.renderer
         Task.detached(priority: .userInitiated) {
             let layouts = engine.layouts(for: items, context: context, now: clockTime)
@@ -295,24 +317,151 @@ final class TimelineViewController: UIViewController {
             let changed = entries.integrate(fresh, onScreen: onScreenIndices) {
                 engine.key(for: $0, context: context, now: clockTime)
             }
-            applyChanges(at: changed)
+            if !changed.isEmpty { presentEntries() }
         }
         relayoutStale()
     }
 
-    private func applyChanges(at changed: [Int]) {
-        guard !changed.isEmpty else { return }
-        if changed.contains(where: { listLayout.height(ofItem: $0) != entries.layouts[$0].height }) {
-            reload(keeping: captureAnchor())
+    /// How `presentEntries()` moves the list for what changed since it last ran.
+    private struct Presentation {
+        /// The list was replaced: it shows from the top again, unless `keepsPosition`.
+        var startsOver = false
+        /// Notes that came in above the screen stay above it, also at the top ("新しいノート"
+        /// shows); a replaced list stays at the note at the top of the screen if it is still
+        /// there.
+        var keepsPosition = false
+    }
+
+    /// Shows `entries` as they are now: the only place the rows on screen change. While the
+    /// list is held only what rows show changes in place, and the hold's end runs it again.
+    private func presentEntries() {
+        guard !listHold.isHeld else { return showContentInPlace() }
+        let old = presented
+        let presentation = self.presentation
+        self.presentation = Presentation()
+        presented = entries
+        guard isViewLoaded else { return }
+        if old.revision == presented.revision {
+            showContentChanges(from: old)
         } else {
-            for index in changed {
-                if let cell = collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? NoteCell {
-                    configure(cell, at: index)
-                }
-            }
+            showRowChanges(from: old, presentation)
         }
+        updateFooter()
+        updateGapViews()
         prefetchedRange = 0..<0
         prefetchAround(visible: visibleItemRange)
+        loadMoreIfNeeded()
+        fillGapsIfNeeded()
+    }
+
+    /// While the list is held: rows laid out again at the same height show what changed (a
+    /// count next to the button playing); nothing moves.
+    private func showContentInPlace() {
+        guard isViewLoaded else { return }
+        var changed = false
+        for index in presented.items.indices {
+            guard let latest = entries.index(of: presented.items[index].id) else { continue }
+            let layout = entries.layouts[latest]
+            guard layout.serial != presented.layouts[index].serial,
+                  layout.height == presented.layouts[index].height
+            else { continue }
+            presented.update(at: index, item: entries.items[latest], layout: layout)
+            changed = true
+        }
+        if changed { configureChangedCells() }
+    }
+
+    /// The same rows: the cells whose rows were laid out again change, or the whole list
+    /// is laid out again around the screen if heights changed.
+    private func showContentChanges(from old: TimelineEntries) {
+        if zip(old.layouts, presented.layouts).contains(where: { $0.height != $1.height }) {
+            reload(keeping: captureAnchor(in: old))
+        } else {
+            configureChangedCells()
+        }
+    }
+
+    private func showRowChanges(from old: TimelineEntries, _ presentation: Presentation) {
+        if old.isEmpty || presentation.startsOver && !presentation.keepsPosition {
+            updateListLayout()
+            collectionView.reloadData()
+            if presentation.startsOver {
+                scrollToTop(animated: false)
+                hideNewNotesButton()
+            }
+            return
+        }
+        let rows = RowChanges(from: old, to: presented)
+        let reveals = isAtTop && !presentation.keepsPosition
+        let keepsGaps = old.gaps.map(\.id) == presented.gaps.map(\.id)
+        let simple = keepsGaps && !rows.reshapes
+        // The layout changes inside the batch: the rows that stay move from where they are.
+        if simple && rows.inserted.isEmpty {
+            collectionView.performBatchUpdates {
+                updateListLayout()
+                collectionView.deleteItems(at: rows.removed.map { IndexPath(item: $0, section: 0) })
+            }
+            configureChangedCells()
+        } else if simple && rows.removed.isEmpty && rows.inserted.first == old.count {
+            listLayout.appendHeights(presented.layouts[old.count...].map(\.height))
+            UIView.performWithoutAnimation {
+                collectionView.insertItems(at: rows.inserted.map { IndexPath(item: $0, section: 0) })
+            }
+            configureChangedCells()
+        } else if simple && reveals && rows.removed.isEmpty && rows.inserted.count == rows.insertedAbove {
+            collectionView.performBatchUpdates {
+                updateListLayout()
+                collectionView.insertItems(at: rows.inserted.map { IndexPath(item: $0, section: 0) })
+            }
+            configureChangedCells()
+        } else {
+            let anchor = reveals && rows.insertedAbove > 0 ? nil : captureAnchor(in: old)
+            reload(keeping: anchor)
+            if presentation.startsOver && anchor == nil { scrollToTop(animated: false) }
+        }
+        if presentation.startsOver {
+            hideNewNotesButton()
+        } else if rows.insertedAbove > 0 && !reveals {
+            showNewNotesButton(for: presented.items.prefix(rows.insertedAbove))
+        }
+    }
+
+    /// How the rows went from one list to the next.
+    private struct RowChanges {
+        /// Where the rows that went were, in order.
+        private(set) var removed: [Int] = []
+        /// Where the rows that came are, in order.
+        private(set) var inserted: [Int] = []
+        /// How many came in above every row that stayed.
+        private(set) var insertedAbove = 0
+        /// Rows that stayed changed order or height.
+        private(set) var reshapes = false
+
+        init(from old: TimelineEntries, to new: TimelineEntries) {
+            removed = old.items.indices.filter { !new.contains(old.items[$0].id) }
+            var previous: Int?
+            for (index, item) in new.items.enumerated() {
+                guard let oldIndex = old.index(of: item.id) else {
+                    inserted.append(index)
+                    if previous == nil { insertedAbove += 1 }
+                    continue
+                }
+                if oldIndex < previous ?? -1 || old.layouts[oldIndex].height != new.layouts[index].height {
+                    reshapes = true
+                }
+                previous = oldIndex
+            }
+        }
+    }
+
+    /// Gives the cells on screen their row's layout where it changed.
+    private func configureChangedCells() {
+        for indexPath in collectionView.indexPathsForVisibleItems where indexPath.item < presented.count {
+            guard let cell = collectionView.cellForItem(at: indexPath) as? NoteCell,
+                  cell.layoutSerial != presented.layouts[indexPath.item].serial
+            else { continue }
+            configure(cell, at: indexPath.item)
+        }
     }
 
     private struct Anchor {
@@ -324,22 +473,32 @@ final class TimelineViewController: UIViewController {
         #endif
     }
 
-    private func captureAnchor() -> Anchor? {
+    /// The row at the top of the screen (in `old`, what showed until now) and how far into
+    /// it the screen starts. If that row is no longer in `presented`, the first one on screen
+    /// below it that is.
+    private func captureAnchor(in old: TimelineEntries) -> Anchor? {
         let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        guard let index = listLayout.firstItem(endingBelow: top), index < entries.count,
-              let offset = listLayout.offset(ofItem: index)
-        else { return nil }
-        #if PERF
-        let middleY = collectionView.contentOffset.y + collectionView.bounds.height / 2
-        let middle = listLayout.firstItem(endingBelow: middleY).flatMap { index -> (String, CGFloat)? in
-            guard index < entries.count, let offset = listLayout.offset(ofItem: index) else { return nil }
-            return (entries.items[index].id, offset - collectionView.contentOffset.y)
+        let bottom = collectionView.contentOffset.y + collectionView.bounds.height
+        guard var index = listLayout.firstItem(endingBelow: top) else { return nil }
+        while index < old.count, let offset = listLayout.offset(ofItem: index), offset < bottom {
+            let noteID = old.items[index].id
+            guard presented.contains(noteID) else {
+                index += 1
+                continue
+            }
+            #if PERF
+            let middleY = collectionView.contentOffset.y + collectionView.bounds.height / 2
+            let middle = listLayout.firstItem(endingBelow: middleY).flatMap { index -> (String, CGFloat)? in
+                guard index < old.count, let offset = listLayout.offset(ofItem: index) else { return nil }
+                return (old.items[index].id, offset - collectionView.contentOffset.y)
+            }
+            return Anchor(noteID: noteID, delta: top - offset, middle: middle,
+                          wasDecelerating: collectionView.isDecelerating)
+            #else
+            return Anchor(noteID: noteID, delta: top - offset)
+            #endif
         }
-        return Anchor(noteID: entries.items[index].id, delta: top - offset, middle: middle,
-                      wasDecelerating: collectionView.isDecelerating)
-        #else
-        return Anchor(noteID: entries.items[index].id, delta: top - offset)
-        #endif
+        return nil
     }
 
     private func reload(keeping anchor: Anchor?) {
@@ -350,8 +509,8 @@ final class TimelineViewController: UIViewController {
         updateListLayout()
         collectionView.reloadData()
         collectionView.layoutIfNeeded()
-        if let anchor, let index = entries.index(of: anchor.noteID), let offset = listLayout.offset(ofItem: index) {
-            let delta = min(anchor.delta, entries.layouts[index].height)
+        if let anchor, let index = presented.index(of: anchor.noteID), let offset = listLayout.offset(ofItem: index) {
+            let delta = min(anchor.delta, presented.layouts[index].height)
             collectionView.contentOffset.y = offset + delta - collectionView.adjustedContentInset.top
             collectionView.layoutIfNeeded()
         }
@@ -363,7 +522,7 @@ final class TimelineViewController: UIViewController {
         positionStats.reloads += 1
         positionStats.totalReloadMs += ms
         positionStats.maxReloadMs = max(positionStats.maxReloadMs, ms)
-        if let middle = anchor?.middle, let index = entries.index(of: middle.noteID),
+        if let middle = anchor?.middle, let index = presented.index(of: middle.noteID),
            let offset = listLayout.offset(ofItem: index) {
             let jump = abs(offset - collectionView.contentOffset.y - middle.y)
             positionStats.maxJumpPoints = max(positionStats.maxJumpPoints, Double(jump))
@@ -376,11 +535,14 @@ final class TimelineViewController: UIViewController {
     }
 
     private func updateListLayout() {
-        listLayout.setHeights(entries.layouts.map(\.height), gaps: entries.gapPlacements)
+        listLayout.setHeights(presented.layouts.map(\.height), gaps: presented.gapPlacements)
     }
 
+    /// The rows on screen, by where they are in `entries`.
     private var onScreenIndices: Set<Int> {
-        Set(collectionView.indexPathsForVisibleItems.map(\.item))
+        Set(collectionView.indexPathsForVisibleItems.compactMap { indexPath in
+            indexPath.item < presented.count ? entries.index(of: presented.items[indexPath.item].id) : nil
+        })
     }
 
     private func scheduleClockTick() {
@@ -426,44 +588,13 @@ final class TimelineViewController: UIViewController {
         remove { $0.remove(involving: userID) }
     }
 
-    /// Waits for the icon animation of a note it takes out (the answer to the tap that took
-    /// it out: a bookmark or a renote taken back) to end. Then, if `wanted`, it goes.
-    private func remove(if wanted: @escaping () -> Bool = { true },
-                        _ removal: @escaping (inout TimelineEntries) -> [Int]) {
-        if let wait = iconAnimationWait(before: removal) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.remove(if: wanted, removal) }
-            return
-        }
-        guard wanted() else { return }
+    private func remove(_ removal: (inout TimelineEntries) -> [Int]) {
         let idsBefore = entries.items.map(\.id)
-        let gapsBefore = entries.gaps.map(\.id)
-        let anchor = captureAnchor()
         let removed = removal(&entries)
         guard !removed.isEmpty else { return }
         deferredNoteIDs.subtract(removed.map { idsBefore[$0] })
         absorbTrailingGap()
-        if entries.gaps.map(\.id) == gapsBefore {
-            updateListLayout()
-            collectionView.performBatchUpdates {
-                collectionView.deleteItems(at: removed.map { IndexPath(item: $0, section: 0) })
-            }
-        } else {
-            reload(keeping: anchor)
-        }
-        if entries.isEmpty { updateFooter() }
-        prefetchedRange = 0..<0
-        prefetchAround(visible: visibleItemRange)
-        loadMoreIfNeeded()
-    }
-
-    /// How long to hold `removal`, nil if what it takes out is not animating.
-    private func iconAnimationWait(before removal: (inout TimelineEntries) -> [Int]) -> TimeInterval? {
-        let playing = NoteCell.playingIconAnimations
-        guard !playing.isEmpty else { return nil }
-        var trial = entries
-        guard let ends = removal(&trial).compactMap({ playing[entries.items[$0].id] }).max() else { return nil }
-        // A moment to see where it ended up.
-        return ends - CACurrentMediaTime() + 0.15
+        presentEntries()
     }
 
     @objc private func rendererDidRedraw(_ notification: Notification) {
@@ -519,17 +650,26 @@ final class TimelineViewController: UIViewController {
     /// Replaces the list with the newest page by default. With `preserveHistory`, merges
     /// new entries above fetched history, leaving a gap if the page does not reach it.
     /// At the top new entries show; otherwise, or with `keepingPosition`, they go above
-    /// the screen and "新しいノート" shows. `startingOver` also resets history timelines.
-    /// `completion` runs when it is done (or failed).
+    /// the screen and "新しいノート" shows; a replaced list then stays where it is too.
+    /// `startingOver` also resets history timelines. Asked for while one is under way, it
+    /// runs after it. `completion` runs when it is done (or failed).
     func refresh(startingOver: Bool = false, keepingPosition: Bool = false, completion: (() -> Void)? = nil) {
+        guard !isRefreshing, !isRestoring else {
+            var next = nextRefresh ?? RefreshRequest()
+            next.startingOver = next.startingOver || startingOver
+            next.keepingPosition = next.keepingPosition || keepingPosition
+            if let completion { next.waiters.append(completion) }
+            nextRefresh = next
+            return
+        }
         if let completion { refreshWaiters.append(completion) }
-        guard !isRefreshing, !isRestoring else { return }
         guard hasStarted, let context else {
             pullToRefresh?.endRefreshing()
             flushRefreshWaiters()
             return
         }
         isRefreshing = true
+        refreshKeepsPosition = keepingPosition
         let preservesHistory = source.refreshPolicy == .preserveHistory
         if startingOver, preservesHistory { rememberShown() }
         let replaces = startingOver || !preservesHistory
@@ -558,7 +698,7 @@ final class TimelineViewController: UIViewController {
                 }
                 await self.waitForSpinner()
                 await self.finishRefresh(update, newest: entries.first?.id, cursor: page.cursor,
-                                         isEnd: page.cursor == nil, keepingPosition: keepingPosition)
+                                         isEnd: page.cursor == nil)
             } catch {
                 await self.refreshFailed(error)
             }
@@ -570,14 +710,7 @@ final class TimelineViewController: UIViewController {
     }
 
     func remove(noteID: String) {
-        keptWhileRemoving.remove(noteID)
-        remove(if: { [weak self] in self?.keptWhileRemoving.remove(noteID) == nil }) { $0.remove(noteID: noteID) }
-    }
-
-    /// The note `noteID` belongs in the list again: a removal still waiting does not happen.
-    func keep(noteID: String) {
-        guard entries.contains(noteID) else { return }
-        keptWhileRemoving.insert(noteID)
+        remove { $0.remove(noteID: noteID) }
     }
 
     func retry() {
@@ -608,7 +741,7 @@ final class TimelineViewController: UIViewController {
 
     private func loadMoreIfNeeded() {
         guard !reachedEnd, !isLoadingPage, retryAfter.map({ Date() >= $0 }) ?? true else { return }
-        guard !pageWaiters.isEmpty || visibleItemRange.upperBound + loadMoreThreshold >= entries.count else { return }
+        guard !pageWaiters.isEmpty || visibleItemRange.upperBound + loadMoreThreshold >= presented.count else { return }
         loadNextPage()
     }
 
@@ -620,18 +753,10 @@ final class TimelineViewController: UIViewController {
         failures = 0
         if let next { cursor = next }
         if newestID == nil { newestID = newest }
-        let range = entries.append(newItems, layouts: newLayouts)
-        listLayout.appendHeights(entries.layouts[range].map(\.height))
+        entries.append(newItems, layouts: newLayouts)
         if isEnd { reachedEnd = true }
-        updateFooter()
-        if range.lowerBound == 0 {
-            collectionView.reloadData()
-        } else if !range.isEmpty {
-            UIView.performWithoutAnimation {
-                collectionView.insertItems(at: range.map { IndexPath(item: $0, section: 0) })
-            }
-        }
         services.learn(from: newItems.compactMap(\.note))
+        presentEntries()
         didChangeEntries()
         flushPageWaiters()
         loadMoreIfNeeded()
@@ -645,11 +770,11 @@ final class TimelineViewController: UIViewController {
         let gapBelow: (newerID: String, olderID: String)?
     }
 
-    private func finishRefresh(_ update: RefreshUpdate, newest: String?, cursor next: String?, isEnd: Bool,
-                               keepingPosition: Bool) {
+    private func finishRefresh(_ update: RefreshUpdate, newest: String?, cursor next: String?, isEnd: Bool) {
         isRefreshing = false
         pullToRefresh?.endRefreshing(foundNew: update.replacing || !update.items.isEmpty || !update.changed.isEmpty)
-        defer { flushRefreshWaiters() }
+        if refreshKeepsPosition { presentation.keepsPosition = true }
+        defer { didFinishRefresh() }
         if update.replacing {
             generation += 1
             entries.replaceAll(with: update.items, layouts: update.layouts)
@@ -660,57 +785,32 @@ final class TimelineViewController: UIViewController {
             fillingGapID = nil
             retryAfter = nil
             failures = 0
-            updateListLayout()
-            updateFooter()
-            collectionView.reloadData()
-            scrollToTop(animated: false)
-            hideNewNotesButton()
+            presentation.startsOver = true
         } else {
             if let newest, newest > newestID ?? "" { newestID = newest }
             entries.replace(update.changed)
-            let gapsBefore = entries.gaps
-            let reveals = isAtTop && !keepingPosition
-            let anchor = reveals ? nil : captureAnchor()
-            let count = entries.prepend(update.items, layouts: update.layouts, gapBelow: update.gapBelow)
+            entries.prepend(update.items, layouts: update.layouts, gapBelow: update.gapBelow)
             absorbTrailingGap()
-            guard count > 0 || entries.gaps != gapsBefore else {
-                if !update.changed.isEmpty { relayoutStale() }
-                return
-            }
-            if !reveals {
-                reload(keeping: anchor)
-                if count > 0 { showNewNotesButton(for: entries.items.prefix(count)) }
-            } else if entries.gaps == gapsBefore {
-                updateListLayout()
-                collectionView.performBatchUpdates {
-                    collectionView.insertItems(at: (0..<count).map { IndexPath(item: $0, section: 0) })
-                }
-            } else {
-                updateListLayout()
-                collectionView.reloadData()
-            }
         }
         services.learn(from: update.items.compactMap(\.note))
+        presentEntries()
         didChangeEntries()
-        loadMoreIfNeeded()
     }
 
     private func refreshFailed(_ error: any Error) {
         isRefreshing = false
         pullToRefresh?.endRefreshing()
-        flushRefreshWaiters()
+        didFinishRefresh()
         if (error as? MisskeyAPIError)?.isAuthenticationFailure == true {
             onAuthenticationFailure?()
         }
         Toast.show(Self.message(for: error), in: view.window)
     }
 
+    /// Notes came in or changed: lays out what needs it and times the labels' next change.
     private func didChangeEntries() {
-        prefetchedRange = 0..<0
-        prefetchAround(visible: visibleItemRange)
         relayoutStale()
         scheduleClockTick()
-        fillGapsIfNeeded()
     }
 
     private func pageFailed(_ error: any Error, generation: Int) {
@@ -738,6 +838,15 @@ final class TimelineViewController: UIViewController {
         (error as? LocalizedError)?.errorDescription ?? "読み込めませんでした"
     }
 
+    /// Calls back who waited for the refresh, and starts the one asked for meanwhile.
+    private func didFinishRefresh() {
+        flushRefreshWaiters()
+        guard let next = nextRefresh else { return }
+        nextRefresh = nil
+        refreshWaiters = next.waiters
+        refresh(startingOver: next.startingOver, keepingPosition: next.keepingPosition)
+    }
+
     private func flushRefreshWaiters() {
         let waiters = refreshWaiters
         refreshWaiters.removeAll()
@@ -751,11 +860,11 @@ final class TimelineViewController: UIViewController {
     }
 
     private func fillGapsIfNeeded() {
-        guard fillingGapID == nil, !entries.gaps.isEmpty else { return }
+        guard fillingGapID == nil, !presented.gaps.isEmpty else { return }
         let visible = visibleItemRange
         guard !visible.isEmpty else { return }
-        for gap in entries.gaps where !gap.failed {
-            let position = entries.position(of: gap)
+        for gap in presented.gaps where entries.gap(gap.id)?.failed == false {
+            let position = presented.position(of: gap)
             guard position + 1 + gapFillThreshold >= visible.lowerBound,
                   position < visible.upperBound + gapFillThreshold
             else { continue }
@@ -770,7 +879,8 @@ final class TimelineViewController: UIViewController {
         entries.setFailed(false, gap: gapID)
         updateGapViews()
         let visible = visibleItemRange
-        let fromNewer = entries.position(of: gap) + 1 > (visible.lowerBound + visible.upperBound) / 2
+        let position = presented.gap(gapID).map(presented.position(of:)) ?? entries.position(of: gap)
+        let fromNewer = position + 1 > (visible.lowerBound + visible.upperBound) / 2
         let source = self.source
         let limit = pageSize
         let known = entries
@@ -811,10 +921,9 @@ final class TimelineViewController: UIViewController {
             fillGapsIfNeeded()
             return
         }
-        let anchor = captureAnchor()
         entries.fill(gapID, with: items, layouts: layouts, fromNewer: fromNewer, edge: edge, closes: closes)
-        reload(keeping: anchor)
         services.learn(from: items.compactMap(\.note))
+        presentEntries()
         didChangeEntries()
     }
 
@@ -834,25 +943,25 @@ final class TimelineViewController: UIViewController {
         reachedEnd = false
     }
 
-    private func gapState(_ gap: TimelineGap) -> TimelineGapView.State {
-        if fillingGapID == gap.id { return .loading }
+    /// As the list knows it now, also for a gap that still shows after it closed.
+    private func gapState(_ gapID: Int) -> TimelineGapView.State? {
+        guard let gap = entries.gap(gapID) ?? presented.gap(gapID) else { return nil }
+        if fillingGapID == gapID { return .loading }
         return gap.failed ? .failed : .idle
     }
 
     private func updateGapViews() {
         let kind = TimelineCollectionLayout.gapKind
         for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
-            guard let gap = entries.gap(indexPath.item),
+            guard let state = gapState(indexPath.item),
                   let view = collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? TimelineGapView
             else { continue }
-            view.apply(gapState(gap))
+            view.apply(state)
         }
     }
 
     private var showsNewNotes = false
     private var newNotesAuthors: [User] = []
-    /// Notes put back (bookmarked again) while their removal waited for their animation.
-    private var keptWhileRemoving = Set<String>()
 
     /// The account's own renotes are not news to it: alone, they do not show the button.
     private func showNewNotesButton(for newItems: ArraySlice<TimelineItem>) {
@@ -932,6 +1041,9 @@ final class TimelineViewController: UIViewController {
         guard let snapshot, !items.isEmpty else {
             loadNextPage()
             pullToRefresh?.endRefreshing()
+            // The first page is the newest: no refresh asked for meanwhile is left to do.
+            refreshWaiters += nextRefresh?.waiters ?? []
+            nextRefresh = nil
             flushRefreshWaiters()
             return
         }
@@ -939,10 +1051,8 @@ final class TimelineViewController: UIViewController {
         newestID = snapshot.newestID ?? items.first?.id
         cursor = snapshot.cursor ?? items.last?.id
         absorbTrailingGap()
-        updateListLayout()
-        updateFooter()
-        collectionView.reloadData()
         services.learn(from: items.compactMap(\.note))
+        presentEntries()
         didChangeEntries()
         refresh(keepingPosition: true)
         loadMoreIfNeeded()
@@ -1006,7 +1116,7 @@ final class TimelineViewController: UIViewController {
         if !reachedEnd {
             setFooter(isLoadingPage || retryAfter == nil ? .loading : footerState)
         } else {
-            setFooter(entries.isEmpty ? .empty : .hidden)
+            setFooter(presented.isEmpty ? .empty : .hidden)
         }
     }
 
@@ -1019,17 +1129,17 @@ final class TimelineViewController: UIViewController {
 
     private func prefetchWindow(around visible: Range<Int>) -> Range<Int> {
         let lower = max(0, visible.lowerBound - lookahead / 2)
-        let upper = min(entries.count, visible.upperBound + lookahead)
+        let upper = min(presented.count, visible.upperBound + lookahead)
         return lower..<max(lower, upper)
     }
 
     private func prefetchAround(visible: Range<Int>) {
-        guard !entries.isEmpty else { return }
+        guard !presented.isEmpty else { return }
         let wanted = prefetchWindow(around: visible)
         guard wanted != prefetchedRange else { return }
         let fresh = wanted.filter { !prefetchedRange.contains($0) }
         prefetchedRange = wanted
-        prefetch(fresh.map { entries.layouts[$0] })
+        prefetch(fresh.map { presented.layouts[$0] })
     }
 
     private func prefetch(_ layouts: [NoteLayout]) {
@@ -1047,10 +1157,10 @@ final class TimelineViewController: UIViewController {
     }
 
     private func configure(_ cell: NoteCell, at index: Int) {
-        let layout = entries.layouts[index]
+        let layout = presented.layouts[index]
         let rendered = renderer.cached(layout)
         cell.apply(layout, rendered: rendered, imagePipeline: imagePipeline, now: clockTime)
-        cell.accessibilityIdentifier = "note.\(entries.items[index].id)"
+        cell.accessibilityIdentifier = "note.\(presented.items[index].id)"
         if cell.customActionsProvider == nil {
             cell.customActionsProvider = { [weak self] in self?.accessibilityActions(for: $0) ?? [] }
             cell.menuProvider = { [weak self] in self?.menuElements(for: $0) ?? [] }
@@ -1063,11 +1173,13 @@ final class TimelineViewController: UIViewController {
     }
 
     func indexPath(forNote noteID: String) -> IndexPath? {
-        entries.index(of: noteID).map { IndexPath(item: $0, section: 0) }
+        presented.index(of: noteID).map { IndexPath(item: $0, section: 0) }
     }
 
+    /// As the list has it now, or as it shows while its row waits to go.
     func item(forNote noteID: String) -> TimelineItem? {
-        entries.index(of: noteID).map { entries.items[$0] }
+        if let index = entries.index(of: noteID) { return entries.items[index] }
+        return presented.index(of: noteID).map { presented.items[$0] }
     }
 
     /// A display state change (CW, long text, sensitive media): laid out right away.
@@ -1140,7 +1252,7 @@ extension TimelineViewController: UICollectionViewDataSource, UICollectionViewDe
     UICollectionViewDataSourcePrefetching
 {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        entries.count
+        presented.count
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
@@ -1156,7 +1268,7 @@ extension TimelineViewController: UICollectionViewDataSource, UICollectionViewDe
                 ofKind: kind, withReuseIdentifier: TimelineGapView.reuseIdentifier, for: indexPath) as! TimelineGapView
             let gapID = indexPath.item
             view.onTap = { [weak self] in self?.fillGap(gapID) }
-            if let gap = entries.gap(gapID) { view.apply(gapState(gap)) }
+            if let state = gapState(gapID) { view.apply(state) }
             return view
         }
         let footer = collectionView.dequeueReusableSupplementaryView(
@@ -1169,9 +1281,10 @@ extension TimelineViewController: UICollectionViewDataSource, UICollectionViewDe
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: false)
-        guard indexPath.item < entries.count else { return }
+        guard indexPath.item < presented.count else { return }
         let cell = collectionView.cellForItem(at: indexPath) as? NoteCell
-        perform(cell?.tappedAction, on: entries.items[indexPath.item], cell: cell)
+        let row = presented.items[indexPath.item]
+        perform(cell?.tappedAction, on: item(forNote: row.id) ?? row, cell: cell)
     }
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell,
@@ -1185,20 +1298,20 @@ extension TimelineViewController: UICollectionViewDataSource, UICollectionViewDe
 
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell,
                         forItemAt indexPath: IndexPath) {
-        guard indexPath.item < entries.count, deferredNoteIDs.contains(entries.items[indexPath.item].id) else { return }
+        guard let noteID = (cell as? NoteCell)?.layout?.key.noteID, deferredNoteIDs.contains(noteID) else { return }
         Task { self.relayoutStale() }
     }
 
     func collectionView(_ collectionView: UICollectionView, willDisplaySupplementaryView view: UICollectionReusableView,
                         forElementKind elementKind: String, at indexPath: IndexPath) {
         (view as? TimelineFooterView)?.apply(footerState)
-        if let view = view as? TimelineGapView, let gap = entries.gap(indexPath.item) {
-            view.apply(gapState(gap))
+        if let view = view as? TimelineGapView, let state = gapState(indexPath.item) {
+            view.apply(state)
         }
     }
 
     func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
-        prefetch(indexPaths.compactMap { $0.item < entries.count ? entries.layouts[$0.item] : nil })
+        prefetch(indexPaths.compactMap { $0.item < presented.count ? presented.layouts[$0.item] : nil })
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {

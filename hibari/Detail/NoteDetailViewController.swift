@@ -11,9 +11,17 @@ final class NoteDetailViewController: UIViewController {
     /// The note's author, for the follow button.
     private var author: UserDetailed?
 
+    /// What the thread holds: changes land here at once.
     private var ancestors: [TimelineItem] = []
     private var replies: [TimelineItem] = []
+    /// What the rows show: laid out from `ancestors` and `replies`, behind while the list is
+    /// held.
     private var shown = Shown()
+    /// Laid out and waiting for the hold to end.
+    private var waiting: Shown?
+    private var needsHeights = false
+    /// Keeps the rows still while a button's answer to a tap plays on one.
+    let listHold = ListHold()
 
     private struct Shown {
         var ancestors: [TimelineItem] = []
@@ -71,6 +79,7 @@ final class NoteDetailViewController: UIViewController {
         header.install(in: self)
 
         configureFocusedView()
+        listHold.onRelease = { [weak self] in self?.showWaiting() }
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitPreferredContentSizeCategory.self,
                                  UITraitDisplayScale.self]) { (self: Self, _) in
             self.updateContextIfNeeded()
@@ -141,13 +150,13 @@ final class NoteDetailViewController: UIViewController {
         focusedView.onRenote = { [weak self] in
             guard let self else { return }
             self.services.renoteTapped(self.note, from: self) { [weak self] renoted in
-                self?.focusedView.playIconAnimation(renoted ? .renote : .undoRenote)
+                self?.focusedView.playActionAnimation(renoted ? .renote : .undoRenote)
             }
         }
         focusedView.onBookmark = { [weak self] in
             guard let self else { return }
             self.services.bookmarkTapped(self.note) { [weak self] bookmarked in
-                self?.focusedView.playIconAnimation(.bookmark(bookmarked))
+                self?.focusedView.playActionAnimation(.bookmark(bookmarked))
             }
         }
         focusedView.onShare = { [weak self] in
@@ -362,15 +371,30 @@ final class NoteDetailViewController: UIViewController {
 
     private func show(ancestors: [TimelineItem], replies: [TimelineItem], layouts: [NoteLayout], generation: Int) {
         guard generation == layoutGeneration else { return }
-        shown = Shown(ancestors: ancestors, ancestorLayouts: Array(layouts.prefix(ancestors.count)),
-                      replies: replies, replyLayouts: Array(layouts.suffix(replies.count)))
-        focusedView.showsThreadLine = !ancestors.isEmpty
-        applyHeights()
+        waiting = Shown(ancestors: ancestors, ancestorLayouts: Array(layouts.prefix(ancestors.count)),
+                        replies: replies, replyLayouts: Array(layouts.suffix(replies.count)))
+        showWaiting()
+    }
+
+    /// Shows what was laid out since the rows last changed, unless the list is held.
+    private func showWaiting() {
+        guard !listHold.isHeld else { return }
+        if let waiting {
+            self.waiting = nil
+            shown = waiting
+            focusedView.showsThreadLine = !waiting.ancestors.isEmpty
+            needsHeights = true
+        }
+        if needsHeights { applyHeights() }
     }
 
     private var focusedRow: Int { shown.ancestors.count }
 
+    /// Lays the rows out again (reloading them); while the list is held, once it ends.
     private func applyHeights() {
+        needsHeights = true
+        guard !listHold.isHeld else { return }
+        needsHeights = false
         let previousTop = listLayout.offset(ofItem: listLayoutFocusedRow)
         let screenY = previousTop.map { $0 - collectionView.contentOffset.y }
         listLayout.setHeights(shown.ancestorLayouts.map(\.height) + [focusedHeight] + shown.replyLayouts.map(\.height))

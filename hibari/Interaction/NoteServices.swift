@@ -229,18 +229,18 @@ extension NoteServices {
         compose(reply: note, from: controller)
     }
 
-    /// Opens the renote sheet. `onChange` hears when the account renotes the note (true)
-    /// or takes its renote back (false) from it, for the button to animate.
-    func renoteTapped(_ note: Note, from controller: UIViewController, onChange: ((Bool) -> Void)? = nil) {
+    /// Opens the renote sheet. `willChange` hears that the account renotes the note (true)
+    /// or takes its renote back (false) from it, as `bookmarkTapped` does.
+    func renoteTapped(_ note: Note, from controller: UIViewController, willChange: ((Bool) -> Void)? = nil) {
         let allowed = note.canBeRenoted(by: account)
         let busy = renotes.isBusy(note)
         let icon = UIImage(named: "NoteRenote")
         let renote = renotes.isRenoted(note)
             ? ActionSheetController.Action(title: "リノートを取り消す", image: icon, isEnabled: !busy) { [weak self] in
-                if self?.undoRenote(note) == true { onChange?(false) }
+                self?.undoRenote(note) { willChange?(false) }
             }
             : ActionSheetController.Action(title: "リノート", image: icon, isEnabled: allowed && !busy) { [weak self] in
-                if self?.renote(note) == true { onChange?(true) }
+                self?.renote(note) { willChange?(true) }
             }
         let quote = ActionSheetController.Action(title: "引用", image: UIImage(systemName: "pencil"), isEnabled: allowed) {
             [weak self, weak controller] in
@@ -252,10 +252,12 @@ extension NoteServices {
     }
 
     /// For the visibility picked last, narrowed to the note's (as Misskey would). The
-    /// button shows it right away. Returns whether it went.
+    /// button shows it right away. `willChange` runs first if it goes. Returns whether it
+    /// went.
     @discardableResult
-    func renote(_ note: Note) -> Bool {
+    func renote(_ note: Note, willChange: (() -> Void)? = nil) -> Bool {
         guard let client, !renotes.isRenoted(note), !renotes.isBusy(note) else { return false }
+        willChange?()
         let draft = NoteDraft(visibility: NoteVisibility.remembered(for: account).narrowed(to: NoteVisibility(of: note)),
                               renoteID: note.id)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -274,10 +276,11 @@ extension NoteServices {
         return true
     }
 
-    /// Returns whether it went.
+    /// `willChange` runs first if it goes. Returns whether it went.
     @discardableResult
-    func undoRenote(_ note: Note) -> Bool {
+    func undoRenote(_ note: Note, willChange: (() -> Void)? = nil) -> Bool {
         guard let client, case .renoted(let renoteID) = renotes.state(of: note.id) else { return false }
+        willChange?()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         renotes.set(.deleting(renoteID), for: note.id, renoteCount: max(0, max(0, note.renoteCount) - 1))
         Task { [weak self] in
@@ -309,8 +312,9 @@ extension NoteServices {
         NotificationCenter.default.post(name: Self.didPostNote, object: self, userInfo: ["note": note])
     }
 
-    /// `willChange` hears whether the note is going to be bookmarked, before the lists hear
-    /// it (one taking the note out waits for the button's animation that it starts).
+    /// `willChange` hears whether the note is going to be bookmarked, before anything
+    /// changes: for the button to answer with an animation, which holds the list it is in
+    /// before the change reaches it.
     func bookmarkTapped(_ note: Note, willChange: ((Bool) -> Void)? = nil) {
         guard client != nil else {
             notAvailableYet("ブックマーク")

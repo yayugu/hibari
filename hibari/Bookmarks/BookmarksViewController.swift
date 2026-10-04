@@ -192,18 +192,27 @@ final class BookmarksViewController: UIViewController {
             timeline.remove(noteID: noteID)
             return
         }
-        timeline.keep(noteID: noteID)
         guard !timeline.contains(noteID: noteID) else { return }
-        pagesBehind.insert(page)
-        catchUpCurrentPage()
+        let whenSaved = switch page {
+        case .bookmarks: services.bookmarks.whenSaved
+        case .likes: services.reactions.whenSaved
+        }
+        // Once the server has it, for the refresh to bring it.
+        whenSaved(noteID) { [weak self] in
+            guard let self else { return }
+            pagesBehind.insert(page)
+            // Back on the page being read (bookmarked again, or taking it off failed): it
+            // stays where it is.
+            catchUpCurrentPage(keepingPosition: true)
+        }
     }
 
-    private func catchUpCurrentPage() {
+    private func catchUpCurrentPage(keepingPosition: Bool = false) {
         guard pagesBehind.contains(currentPage), navigationController?.topViewController === self,
               let timeline = currentTimeline
         else { return }
         pagesBehind.remove(currentPage)
-        timeline.refresh()
+        timeline.refresh(keepingPosition: keepingPosition)
     }
 }
 

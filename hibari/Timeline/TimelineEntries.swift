@@ -21,6 +21,10 @@ struct TimelineEntries: Sendable {
     private var indexByID: [String: Int] = [:]
     private var shownNoteIDs: Set<String> = []
     private var nextGapID = 1
+    /// Changes whenever entries or gaps come, go or move, not when only what is in them
+    /// changes (content, layouts, a gap failing): two copies with the same one have the
+    /// same rows and gaps in the same places.
+    private(set) var revision = 0
 
     init(accountUserID: String? = nil) {
         self.accountUserID = accountUserID
@@ -72,6 +76,14 @@ struct TimelineEntries: Sendable {
         indexByID[noteID]
     }
 
+    /// Puts a newer version of the entry at `index` (the same id), laid out at the same
+    /// height: what it shows changes, not where anything is.
+    mutating func update(at index: Int, item: TimelineItem, layout: NoteLayout) {
+        precondition(item.id == items[index].id && layout.height == layouts[index].height)
+        items[index] = item
+        layouts[index] = layout
+    }
+
     /// Changes a note's display state. Its layout is out of date until laid out again.
     mutating func updateState(at index: Int, _ update: (inout NoteDisplayState) -> Void) {
         update(&items[index].state)
@@ -111,6 +123,7 @@ struct TimelineEntries: Sendable {
             items.append(item)
             layouts.append(layout)
         }
+        if items.count > start { revision += 1 }
         return start..<items.count
     }
 
@@ -129,6 +142,7 @@ struct TimelineEntries: Sendable {
         items = fresh.map(\.0) + items
         layouts = fresh.map(\.1) + layouts
         rebuildIndex()
+        revision += 1
         return fresh.count
     }
 
@@ -157,6 +171,7 @@ struct TimelineEntries: Sendable {
             gaps.remove(at: gapIndex)
         }
         mergeGaps()
+        revision += 1
         return start..<(start + fresh.count)
     }
 
@@ -169,14 +184,17 @@ struct TimelineEntries: Sendable {
     /// list goes on, not a gap. Taken out and returned.
     mutating func removeTrailingGap() -> TimelineGap? {
         guard let last = gaps.last, position(of: last) == items.count - 1 else { return nil }
+        revision += 1
         return gaps.removeLast()
     }
 
     mutating func restore(_ newItems: [TimelineItem], layouts newLayouts: [NoteLayout],
                           gaps saved: [(newerID: String, olderID: String)]) {
         let nextGapID = self.nextGapID
+        let revision = self.revision
         self = TimelineEntries(accountUserID: accountUserID)
         self.nextGapID = nextGapID
+        self.revision = revision + 1
         append(newItems, layouts: newLayouts)
         for gap in saved {
             addGap(newerID: gap.newerID, olderID: gap.olderID)
@@ -188,6 +206,7 @@ struct TimelineEntries: Sendable {
         gaps.append(TimelineGap(id: nextGapID, newerID: newerID, olderID: olderID))
         nextGapID += 1
         mergeGaps()
+        revision += 1
     }
 
     private mutating func mergeGaps() {
@@ -249,6 +268,7 @@ struct TimelineEntries: Sendable {
         }
         rebuildIndex()
         mergeGaps()
+        revision += 1
         return gone
     }
 

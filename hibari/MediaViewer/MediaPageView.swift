@@ -32,6 +32,10 @@ final class MediaPageView: UIScrollView, UIScrollViewDelegate {
         showsVerticalScrollIndicator = false
         showsHorizontalScrollIndicator = false
         contentInsetAdjustmentBehavior = .never
+        // A tall image reaches under the status bar; the system's scroll edge effect would
+        // blur it there.
+        topEdgeEffect.isHidden = true
+        bottomEdgeEffect.isHidden = true
         decelerationRate = .fast
         minimumZoomScale = 1
         maximumZoomScale = Self.maximumZoom

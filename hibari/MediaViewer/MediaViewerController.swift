@@ -94,6 +94,8 @@ final class MediaViewerController: UIViewController {
         pager.isPagingEnabled = true
         pager.showsHorizontalScrollIndicator = false
         pager.contentInsetAdjustmentBehavior = .never
+        pager.topEdgeEffect.isHidden = true
+        pager.bottomEdgeEffect.isHidden = true
         pager.clipsToBounds = false
         pager.delegate = self
         view.addSubview(pager)

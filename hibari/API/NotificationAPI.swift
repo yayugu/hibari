@@ -37,3 +37,30 @@ struct UnreadNotificationCount: Decodable, Sendable {
         unreadNotificationsCount ?? (hasUnreadNotification == true ? 1 : 0)
     }
 }
+
+/// Just enough of a notification to tell what it is (`i/notifications`, ungrouped).
+struct NotificationSummary: Decodable, Sendable {
+    let id: String
+    let type: String
+    let userId: String?
+}
+
+extension MisskeyClient {
+    /// The newest `limit` notifications (Misskey gives at most 100), left unread. Without
+    /// a filter Misskey reads just that many and drops the ones it cannot show, so they
+    /// are all among the newest `limit`.
+    func latestNotifications(limit: Int) async throws -> [NotificationSummary] {
+        try await request("i/notifications", ["limit": min(limit, 100), "markAsRead": false],
+                          as: LossyArray<NotificationSummary>.self).elements
+    }
+
+    /// The ones of the users whose accounts are not locked (Misskey knows them and says so).
+    func unlockedUsers(among userIDs: [String]) async throws -> Set<String> {
+        struct Lock: Decodable {
+            let id: String
+            let isLocked: Bool?
+        }
+        let users = try await request("users/show", ["userIds": userIDs], as: LossyArray<Lock>.self).elements
+        return Set(users.filter { $0.isLocked == false }.map(\.id))
+    }
+}

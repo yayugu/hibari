@@ -235,7 +235,14 @@ struct UnreadNotificationTests {
         return Account(server: TestData.server, me: try JSONDecoder().decode(MeDetailed.self, from: data))
     }
 
-    private func setUp(counts: Locked<[String: Int]>) throws -> (AccountStore, UnreadNotifications, Account, Account) {
+    /// A notification on the stub server: its id, type and user.
+    typealias Entry = (id: String, type: String, user: String?)
+
+    /// `counts` and `notifications` (newest first) by token; `requests` logs the endpoints
+    /// asked for after `i`. Users named `locked…` have locked accounts.
+    private func setUp(counts: Locked<[String: Int]>, notifications: Locked<[String: [Entry]]> = Locked([:]),
+                       requests: Locked<[String]> = Locked([])) throws
+        -> (AccountStore, UnreadNotifications, Account, Account) {
         let defaults = try #require(UserDefaults(suiteName: "hibari-tests-\(UUID().uuidString)"))
         let store = AccountStore(defaults: defaults, tokens: InMemoryTokenStore())
         let alice = try account("u1")
@@ -243,10 +250,31 @@ struct UnreadNotificationTests {
         try store.signIn(alice, token: "A")
         try store.signIn(bob, token: "B")
         let urlSession = StubURLProtocol.session { request, body in
-            #expect(request.url?.path() == "/api/i")
-            let count = counts.withLock { $0[body["i"] as? String ?? ""] } ?? 0
-            return .json(["id": "x", "username": "x", "hasUnreadNotification": count > 0,
-                          "unreadNotificationsCount": count])
+            let token = body["i"] as? String ?? ""
+            switch request.url?.path() {
+            case "/api/i":
+                let count = counts.withLock { $0[token] } ?? 0
+                return .json(["id": "x", "username": "x", "hasUnreadNotification": count > 0,
+                              "unreadNotificationsCount": count])
+            case "/api/i/notifications":
+                #expect(body["markAsRead"] as? Bool == false)
+                let limit = body["limit"] as? Int ?? 10
+                requests.withLock { $0.append("i/notifications \(limit)") }
+                let entries = notifications.withLock { $0[token] } ?? []
+                return .json(entries.prefix(limit).map { entry -> [String: Any] in
+                    var json: [String: Any] = ["id": entry.id, "createdAt": "2026-10-04T00:00:00.000Z",
+                                               "type": entry.type]
+                    if let user = entry.user { json["userId"] = user; json["user"] = NotificationJSON.user(user) }
+                    return json
+                })
+            case "/api/users/show":
+                let ids = body["userIds"] as? [String] ?? []
+                requests.withLock { $0.append("users/show \(ids.sorted().joined(separator: ","))") }
+                return .json(ids.map { NotificationJSON.user($0).merging(["isLocked": $0.hasPrefix("locked")]) { $1 } })
+            default:
+                Issue.record("unexpected \(request.url?.path() ?? "")")
+                return .json([:], status: 404)
+            }
         }
         return (store, UnreadNotifications(accounts: store, urlSession: urlSession), alice, bob)
     }
@@ -285,6 +313,49 @@ struct UnreadNotificationTests {
         #expect(!unread.othersHaveUnread && unread.count(for: alice) == 0)
         unread.update(5, for: alice.id, askedAt: .now)
         #expect(unread.count(for: alice) == 0, "not an account any more")
+    }
+
+    @Test func followsApprovedAutomaticallyAreNotUnread() async throws {
+        let counts = Locked(["A": 3, "B": 1])
+        let notifications = Locked<[String: [Entry]]>([
+            "A": [("n3", "followRequestAccepted", "open"), ("n2", "followRequestAccepted", "locked1"),
+                  ("n1", "reaction", "open"), ("n0", "followRequestAccepted", "open")],
+            "B": [("m1", "followRequestAccepted", "open")],
+        ])
+        let (_, unread, alice, bob) = try setUp(counts: counts, notifications: notifications)
+        await unread.checkAll()
+        #expect(unread.count(for: alice) == 2, "the locked user's approval and the reaction; n0 was read")
+        #expect(!unread.hasUnread(bob))
+    }
+
+    @Test func unreadNotificationsAreLookedAtAgainOnlyWhenTheyMayHaveChanged() async throws {
+        let counts = Locked(["A": 1, "B": 1])
+        let notifications = Locked<[String: [Entry]]>([
+            "A": [("n1", "followRequestAccepted", "open")],
+            "B": [("m1", "reaction", "open")],
+        ])
+        let requests = Locked<[String]>([])
+        let (_, unread, alice, bob) = try setUp(counts: counts, notifications: notifications, requests: requests)
+        await unread.checkAll()
+        #expect(unread.count(for: alice) == 0 && unread.count(for: bob) == 1)
+        #expect(requests.withLock { $0.sorted() } == ["i/notifications 1", "i/notifications 1", "users/show open"])
+
+        requests.withLock { $0 = [] }
+        await unread.checkAll()
+        #expect(requests.withLock { $0 } == ["i/notifications 1"], "only alice's newest, to see it is the same")
+        #expect(unread.count(for: alice) == 0)
+
+        // Read elsewhere, then a reply came: still one unread, but not the approval.
+        notifications.withLock { $0["A"]?.insert(("n2", "reply", "open"), at: 0) }
+        await unread.checkAll()
+        #expect(unread.count(for: alice) == 1)
+
+        counts.withLock { $0["A"] = 2 }
+        notifications.withLock { $0["A"]?.insert(("n3", "followRequestAccepted", "locked1"), at: 0) }
+        requests.withLock { $0 = [] }
+        await unread.checkAll()
+        #expect(unread.count(for: alice) == 2)
+        #expect(requests.withLock { $0 } == ["i/notifications 2", "users/show locked1"])
     }
 
     @Test func serversWithoutACountOnlySayWhetherThereAreAny() throws {

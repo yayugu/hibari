@@ -138,10 +138,17 @@ final class NoteDetailViewController: UIViewController {
             guard let self else { return }
             self.services.replyTapped(self.note, from: self)
         }
-        focusedView.renoteMenu = services.renoteMenu(for: note, from: self)
+        focusedView.onRenote = { [weak self] in
+            guard let self else { return }
+            self.services.renoteTapped(self.note, from: self) { [weak self] renoted in
+                self?.focusedView.playIconAnimation(renoted ? .renote : .undoRenote)
+            }
+        }
         focusedView.onBookmark = { [weak self] in
             guard let self else { return }
-            self.services.bookmarkTapped(self.note)
+            self.services.bookmarkTapped(self.note) { [weak self] bookmarked in
+                self?.focusedView.playIconAnimation(.bookmark(bookmarked))
+            }
         }
         focusedView.onShare = { [weak self] in
             guard let self else { return }
@@ -184,7 +191,6 @@ final class NoteDetailViewController: UIViewController {
     private func setFocused(_ note: Note) {
         self.note = note
         focusedView.update(note)
-        focusedView.renoteMenu = services.renoteMenu(for: note, from: self)
         moreButton.menu = services.menu(for: note, from: self)
     }
 

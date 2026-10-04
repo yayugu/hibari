@@ -229,38 +229,33 @@ extension NoteServices {
         compose(reply: note, from: controller)
     }
 
-    func renoteMenu(for note: Note, from controller: UIViewController) -> UIMenu {
-        let (title, actions) = renoteActions(for: note, from: controller)
-        return UIMenu(title: title ?? "", children: actions.map { action in
-            UIAction(title: action.title, image: UIImage(systemName: action.symbol),
-                     attributes: action.isEnabled ? [] : .disabled) { _ in action.perform() }
-        })
-    }
-
-    func renoteTapped(_ note: Note, from controller: UIViewController) {
-        let (title, actions) = renoteActions(for: note, from: controller)
-        showSheet(title: title, actions: actions, from: controller)
-    }
-
-    private func renoteActions(for note: Note, from controller: UIViewController) -> (String?, [MenuAction]) {
+    /// Opens the renote sheet. `onChange` hears when the account renotes the note (true)
+    /// or takes its renote back (false) from it, for the button to animate.
+    func renoteTapped(_ note: Note, from controller: UIViewController, onChange: ((Bool) -> Void)? = nil) {
         let allowed = note.canBeRenoted(by: account)
+        let busy = renotes.isBusy(note)
+        let icon = UIImage(named: "NoteRenote")
         let renote = renotes.isRenoted(note)
-            ? MenuAction(title: "リノートを取り消す", symbol: "arrow.uturn.backward",
-                         isEnabled: !renotes.isBusy(note)) { [weak self] in self?.undoRenote(note) }
-            : MenuAction(title: "リノート", symbol: "arrow.2.squarepath",
-                         isEnabled: allowed && !renotes.isBusy(note)) { [weak self] in self?.renote(note) }
-        let quote = MenuAction(title: "引用", symbol: "quote.opening", isEnabled: allowed) {
+            ? ActionSheetController.Action(title: "リノートを取り消す", image: icon, isEnabled: !busy) { [weak self] in
+                if self?.undoRenote(note) == true { onChange?(false) }
+            }
+            : ActionSheetController.Action(title: "リノート", image: icon, isEnabled: allowed && !busy) { [weak self] in
+                if self?.renote(note) == true { onChange?(true) }
+            }
+        let quote = ActionSheetController.Action(title: "引用", image: UIImage(systemName: "pencil"), isEnabled: allowed) {
             [weak self, weak controller] in
             guard let controller else { return }
             self?.compose(quote: note, from: controller)
         }
-        return (allowed ? nil : "この投稿はリノートできません", [renote, quote])
+        ActionSheetController(message: allowed ? nil : "この投稿はリノートできません", actions: [renote, quote])
+            .show(from: controller)
     }
 
     /// For the visibility picked last, narrowed to the note's (as Misskey would). The
-    /// button shows it right away.
-    func renote(_ note: Note) {
-        guard let client, !renotes.isRenoted(note), !renotes.isBusy(note) else { return }
+    /// button shows it right away. Returns whether it went.
+    @discardableResult
+    func renote(_ note: Note) -> Bool {
+        guard let client, !renotes.isRenoted(note), !renotes.isBusy(note) else { return false }
         let draft = NoteDraft(visibility: NoteVisibility.remembered(for: account).narrowed(to: NoteVisibility(of: note)),
                               renoteID: note.id)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -276,10 +271,13 @@ extension NoteServices {
                 self?.failed(error, fallback: "リノートできませんでした")
             }
         }
+        return true
     }
 
-    func undoRenote(_ note: Note) {
-        guard let client, case .renoted(let renoteID) = renotes.state(of: note.id) else { return }
+    /// Returns whether it went.
+    @discardableResult
+    func undoRenote(_ note: Note) -> Bool {
+        guard let client, case .renoted(let renoteID) = renotes.state(of: note.id) else { return false }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         renotes.set(.deleting(renoteID), for: note.id, renoteCount: max(0, max(0, note.renoteCount) - 1))
         Task { [weak self] in
@@ -296,6 +294,7 @@ extension NoteServices {
             Toast.show("リノートを取り消しました")
             NotificationCenter.default.post(name: Self.didDeleteNote, object: self, userInfo: ["noteID": renoteID])
         }
+        return true
     }
 
     func failed(_ error: any Error, fallback: String) {
@@ -310,12 +309,16 @@ extension NoteServices {
         NotificationCenter.default.post(name: Self.didPostNote, object: self, userInfo: ["note": note])
     }
 
-    func bookmarkTapped(_ note: Note) {
+    /// `willChange` hears whether the note is going to be bookmarked, before the lists hear
+    /// it (one taking the note out waits for the button's animation that it starts).
+    func bookmarkTapped(_ note: Note, willChange: ((Bool) -> Void)? = nil) {
         guard client != nil else {
             notAvailableYet("ブックマーク")
             return
         }
-        let bookmarked = bookmarks.toggle(note)
+        let bookmarked = !bookmarks.isBookmarked(note)
+        willChange?(bookmarked)
+        bookmarks.toggle(note)
         UIImpactFeedbackGenerator(style: bookmarked ? .medium : .light).impactOccurred()
         Toast.show(bookmarked ? "ブックマークに追加しました" : "ブックマークから削除しました")
     }
@@ -323,19 +326,6 @@ extension NoteServices {
     func share(_ note: Note, from controller: UIViewController) {
         guard let url = webURL(of: note) else { return }
         controller.present(UIActivityViewController(activityItems: [url], applicationActivities: nil), animated: true)
-    }
-
-    private func showSheet(title: String?, actions: [MenuAction], from controller: UIViewController) {
-        let sheet = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
-        for action in actions {
-            let alertAction = UIAlertAction(title: action.title, style: action.isDestructive ? .destructive : .default) {
-                _ in action.perform()
-            }
-            alertAction.isEnabled = action.isEnabled
-            sheet.addAction(alertAction)
-        }
-        sheet.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
-        controller.present(sheet, animated: true)
     }
 
     func menu(for note: Note, from controller: UIViewController) -> UIMenu {
@@ -350,7 +340,6 @@ extension NoteServices {
     private struct MenuAction {
         let title: String
         let symbol: String
-        var isEnabled = true
         var isDestructive = false
         let perform: () -> Void
     }

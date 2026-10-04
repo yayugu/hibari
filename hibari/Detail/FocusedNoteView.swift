@@ -12,13 +12,7 @@ final class FocusedNoteView: UIView {
     var onReact: ((CGRect) -> Void)?
     var onReply: (() -> Void)?
     var onBookmark: (() -> Void)?
-    var renoteMenu: UIMenu? {
-        get { renoteButton.menu }
-        set {
-            renoteButton.menu = newValue
-            renoteButton.showsMenuAsPrimaryAction = newValue != nil
-        }
-    }
+    var onRenote: (() -> Void)?
     var onShare: (() -> Void)?
     /// The avatar or the name: the author's profile.
     var onUser: ((User) -> Void)?
@@ -152,6 +146,7 @@ final class FocusedNoteView: UIView {
 
         let actions: [(UIButton, String, () -> Void)] = [
             (replyButton, "noteDetail.reply", { [weak self] in self?.onReply?() }),
+            (renoteButton, "noteDetail.renote", { [weak self] in self?.onRenote?() }),
             (reactButton, "noteDetail.react", { [weak self] in
                 guard let self else { return }
                 self.onReact?(self.reactButton.convert(self.reactButton.bounds, to: nil))
@@ -164,8 +159,6 @@ final class FocusedNoteView: UIView {
             button.addAction(UIAction { _ in action() }, for: .touchUpInside)
             addSubview(button)
         }
-        renoteButton.accessibilityIdentifier = "noteDetail.renote"
-        addSubview(renoteButton)
         replyButton.accessibilityLabel = "返信"
         shareButton.accessibilityLabel = "共有"
 
@@ -184,6 +177,18 @@ final class FocusedNoteView: UIView {
     func update(_ note: Note) {
         self.note = note
         reloadContent()
+    }
+
+    /// Plays `kind` over its button's icon.
+    func playIconAnimation(_ kind: ActionIconAnimation.Kind) {
+        let button = kind.action == .renote ? renoteButton : bookmarkButton
+        guard let imageView = button.imageView, imageView.bounds.width > 0 else { return }
+        let palette = Palette.palette(for: ThemeStyle(traitCollection.userInterfaceStyle))
+        let animation = ActionIconAnimation.play(kind, frame: imageView.convert(imageView.bounds, to: self),
+                                                 cover: palette[.background], palette: palette,
+                                                 scale: traitCollection.displayScale, in: layer)
+        // The image the button changes to waits under the cover until it is done.
+        animation?.zPosition = 1
     }
 
     /// Where media `index` of `owner` is shown, in window coordinates.

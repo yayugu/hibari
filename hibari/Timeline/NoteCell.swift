@@ -33,6 +33,24 @@ final class NoteCell: UICollectionViewCell {
     private let menuButton = NoteMenuButton()
     private var imageTasks: [ImageTask] = []
     private var pendingImages = Set<Int>()
+    private var iconAnimation: CALayer?
+
+    /// Icon animations still playing, by note: when the list reloads, the cell that shows
+    /// the note next takes its animation over.
+    private static var iconAnimations: [String: IconAnimation] = [:]
+
+    /// When the icon animations still playing end, by note.
+    static var playingIconAnimations: [String: CFTimeInterval] {
+        let now = CACurrentMediaTime()
+        return iconAnimations.compactMapValues { $0.ends > now ? $0.ends : nil }
+    }
+
+    private struct IconAnimation {
+        let layer: CALayer
+        let ends: CFTimeInterval
+        /// Over the next note (its sparks fly out of the cell).
+        let raised: Bool
+    }
 
     var hasPendingImages: Bool { !pendingImages.isEmpty }
 
@@ -62,6 +80,7 @@ final class NoteCell: UICollectionViewCell {
         layout = nil
         touchPoint = nil
         hiddenMedia = nil
+        endIconAnimation()
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -214,6 +233,56 @@ final class NoteCell: UICollectionViewCell {
         menuButton.isHidden = more == nil
         if let more { menuButton.frame = more.frame }
         applyHiddenMedia()
+        resumeIconAnimation()
+    }
+
+    /// Plays `kind` over its button's icon, if the cell shows the note `noteID`.
+    func playIconAnimation(_ kind: ActionIconAnimation.Kind, onNote noteID: String) {
+        guard let layout, layout.key.noteID == noteID, let frame = layout.iconFrame(of: kind.action) else { return }
+        let context = layout.key.context
+        guard let animation = ActionIconAnimation.play(kind, frame: frame, cover: context.palette[.background],
+                                                       palette: context.palette, scale: context.displayScale,
+                                                       in: contentView.layer)
+        else { return }
+        Self.iconAnimations[noteID]?.layer.removeFromSuperlayer()
+        // Only a renote's sparks need to be over the next note: a cell on its way out (a
+        // renote taken back) would show its animation over the others.
+        let raised = if case .renote = kind { true } else { false }
+        Self.iconAnimations[noteID] = IconAnimation(layer: animation, ends: CACurrentMediaTime() + kind.duration,
+                                                    raised: raised)
+        show(Self.iconAnimations[noteID]!)
+    }
+
+    private func resumeIconAnimation() {
+        let noteID = layout?.key.noteID
+        let animation = noteID.flatMap { Self.iconAnimations[$0] }
+        if iconAnimation != nil && animation?.layer !== iconAnimation { endIconAnimation() }
+        guard let noteID, let animation, animation.layer !== iconAnimation else { return }
+        guard animation.ends > CACurrentMediaTime() else {
+            Self.iconAnimations[noteID] = nil
+            return
+        }
+        // Its animations go on where they were: they keep their times when it moves.
+        contentView.layer.addSublayer(animation.layer)
+        show(animation)
+    }
+
+    private func show(_ animation: IconAnimation) {
+        iconAnimation = animation.layer
+        layer.zPosition = animation.raised ? 1 : 0
+        let noteID = layout?.key.noteID
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, animation.ends - CACurrentMediaTime())) { [weak self] in
+            if let noteID, Self.iconAnimations[noteID]?.layer === animation.layer { Self.iconAnimations[noteID] = nil }
+            guard let self, self.iconAnimation === animation.layer else { return }
+            self.endIconAnimation()
+        }
+    }
+
+    /// Takes the animation off the cell (it plays on in the cell that shows the note next).
+    private func endIconAnimation() {
+        if iconAnimation?.superlayer === contentView.layer { iconAnimation?.removeFromSuperlayer() }
+        iconAnimation = nil
+        layer.zPosition = 0
     }
 
     /// Where `media` is shown, in cell coordinates, with its current bitmap.

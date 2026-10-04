@@ -426,7 +426,15 @@ final class TimelineViewController: UIViewController {
         remove { $0.remove(involving: userID) }
     }
 
-    private func remove(_ removal: (inout TimelineEntries) -> [Int]) {
+    /// Waits for the icon animation of a note it takes out (the answer to the tap that took
+    /// it out: a bookmark or a renote taken back) to end. Then, if `wanted`, it goes.
+    private func remove(if wanted: @escaping () -> Bool = { true },
+                        _ removal: @escaping (inout TimelineEntries) -> [Int]) {
+        if let wait = iconAnimationWait(before: removal) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.remove(if: wanted, removal) }
+            return
+        }
+        guard wanted() else { return }
         let idsBefore = entries.items.map(\.id)
         let gapsBefore = entries.gaps.map(\.id)
         let anchor = captureAnchor()
@@ -446,6 +454,16 @@ final class TimelineViewController: UIViewController {
         prefetchedRange = 0..<0
         prefetchAround(visible: visibleItemRange)
         loadMoreIfNeeded()
+    }
+
+    /// How long to hold `removal`, nil if what it takes out is not animating.
+    private func iconAnimationWait(before removal: (inout TimelineEntries) -> [Int]) -> TimeInterval? {
+        let playing = NoteCell.playingIconAnimations
+        guard !playing.isEmpty else { return nil }
+        var trial = entries
+        guard let ends = removal(&trial).compactMap({ playing[entries.items[$0].id] }).max() else { return nil }
+        // A moment to see where it ended up.
+        return ends - CACurrentMediaTime() + 0.15
     }
 
     @objc private func rendererDidRedraw(_ notification: Notification) {
@@ -552,7 +570,14 @@ final class TimelineViewController: UIViewController {
     }
 
     func remove(noteID: String) {
-        remove { $0.remove(noteID: noteID) }
+        keptWhileRemoving.remove(noteID)
+        remove(if: { [weak self] in self?.keptWhileRemoving.remove(noteID) == nil }) { $0.remove(noteID: noteID) }
+    }
+
+    /// The note `noteID` belongs in the list again: a removal still waiting does not happen.
+    func keep(noteID: String) {
+        guard entries.contains(noteID) else { return }
+        keptWhileRemoving.insert(noteID)
     }
 
     func retry() {
@@ -826,11 +851,19 @@ final class TimelineViewController: UIViewController {
 
     private var showsNewNotes = false
     private var newNotesAuthors: [User] = []
+    /// Notes put back (bookmarked again) while their removal waited for their animation.
+    private var keptWhileRemoving = Set<String>()
 
+    /// The account's own renotes are not news to it: alone, they do not show the button.
     private func showNewNotesButton(for newItems: ArraySlice<TimelineItem>) {
         guard !isAtTop else { return }
+        let news = newItems.filter { item in
+            guard let note = item.note else { return true }
+            return !(note.isPureRenote && services.isAccount(note.user))
+        }
+        guard !news.isEmpty else { return }
         var seen = Set<String>()
-        let authors = newItems.compactMap { $0.note?.user ?? $0.notification?.users.first } + newNotesAuthors
+        let authors = news.compactMap { $0.note?.user ?? $0.notification?.users.first } + newNotesAuthors
         newNotesAuthors = Array(authors.filter { seen.insert($0.id).inserted }.prefix(NewNotesButton.maxUsers))
         newNotesButton.loadAvatars(of: newNotesAuthors) { [weak self] users in
             self?.revealNewNotesButton(showing: users)

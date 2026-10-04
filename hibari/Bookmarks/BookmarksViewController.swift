@@ -192,6 +192,7 @@ final class BookmarksViewController: UIViewController {
             timeline.remove(noteID: noteID)
             return
         }
+        timeline.keep(noteID: noteID)
         guard !timeline.contains(noteID: noteID) else { return }
         pagesBehind.insert(page)
         catchUpCurrentPage()

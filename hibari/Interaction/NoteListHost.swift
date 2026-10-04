@@ -55,9 +55,13 @@ extension NoteListHost {
         case .react:
             services.reactButtonTapped(note, from: self, origin: origin(of: .react))
         case .renote:
-            services.renoteTapped(note, from: self)
+            services.renoteTapped(note, from: self) { [weak self] renoted in
+                self?.noteCell(for: item.id)?.playIconAnimation(renoted ? .renote : .undoRenote, onNote: item.id)
+            }
         case .bookmark:
-            services.bookmarkTapped(note)
+            services.bookmarkTapped(note) { bookmarked in
+                cell?.playIconAnimation(.bookmark(bookmarked), onNote: item.id)
+            }
         case .share:
             services.share(note, from: self)
         case .more:

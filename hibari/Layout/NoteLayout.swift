@@ -123,6 +123,19 @@ struct NoteLayout: Sendable {
         targets.last { $0.frame.contains(point) }?.action
     }
 
+    /// Where the icon of the button `action` (one of the action bar's) is drawn, in cell
+    /// coordinates.
+    func iconFrame(of action: NoteTapAction) -> CGRect? {
+        guard let target = targets.last(where: { $0.action == action }) else { return nil }
+        for block in blocks where block.frame.intersects(target.frame) {
+            for case .icon(_, let rect, _) in block.ops {
+                let frame = rect.offsetBy(dx: block.frame.minX, dy: block.frame.minY)
+                if target.frame.contains(frame) && abs(frame.midY - target.frame.midY) < 1 { return frame }
+            }
+        }
+        return nil
+    }
+
     func slotIndex(of media: MediaRef) -> Int? {
         images.firstIndex { $0.media == media }
     }

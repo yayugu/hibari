@@ -184,16 +184,19 @@ final class TimelinePagerViewController: UIViewController {
         timelines.forEach { $0.saveSnapshot() }
     }
 
+    /// A renote goes in above the screen: the list stays put under the note just renoted
+    /// (which plays its animation there).
     @objc private func didPostNote(_ notification: Notification) {
         guard let note = notification.userInfo?["note"] as? Note, let timeline = currentTimeline else { return }
-        refresh(timeline, until: note.id, attempts: 3)
+        refresh(timeline, until: note.id, keepingPosition: note.isPureRenote, attempts: 3)
     }
 
-    private func refresh(_ timeline: TimelineViewController, until noteID: String, attempts: Int) {
-        timeline.refresh { [weak self, weak timeline] in
+    private func refresh(_ timeline: TimelineViewController, until noteID: String, keepingPosition: Bool,
+                         attempts: Int) {
+        timeline.refresh(keepingPosition: keepingPosition) { [weak self, weak timeline] in
             guard let self, let timeline, attempts > 1, !timeline.contains(noteID: noteID) else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                self.refresh(timeline, until: noteID, attempts: attempts - 1)
+                self.refresh(timeline, until: noteID, keepingPosition: keepingPosition, attempts: attempts - 1)
             }
         }
     }

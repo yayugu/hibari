@@ -430,6 +430,16 @@ private final class NoteMenuButton: UIButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    /// While the list moves, a touch is there to stop it: it goes to the cell, which the
+    /// list keeps it from, instead of opening the menu at once.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let listMoving = sequence(first: self as UIView, next: \.superview).contains {
+            guard let scrollView = $0 as? UIScrollView else { return false }
+            return scrollView.isDragging || scrollView.isDecelerating
+        }
+        return listMoving ? nil : super.hitTest(point, with: event)
+    }
+
     private func edgePreview() -> UITargetedPreview {
         let opensUp = window.map { convert(bounds, to: $0).midY > $0.bounds.midY } ?? false
         let parameters = UIPreviewParameters()

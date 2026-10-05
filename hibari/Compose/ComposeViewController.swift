@@ -648,6 +648,8 @@ final class ComposeViewController: UIViewController {
     }
 
     private func cancelTapped() {
+        // A second tap while the sheet comes up (or the error alert shows).
+        guard presentedViewController == nil else { return }
         guard hasContent else {
             close()
             return

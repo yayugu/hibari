@@ -47,10 +47,30 @@ struct MiAuthSession: Codable, Equatable, Sendable {
 
     static func start(_ input: String, urlSession: URLSession = .misskeyAPI) async throws -> MiAuthSession {
         guard let server = ServerAddress.url(from: input) else { throw SignInError.invalidAddress }
+        do {
+            return try await start(server: server, urlSession: urlSession)
+        } catch MisskeyAPIError.transport(let error)
+            where error.code == .appTransportSecurityRequiresSecureConnection && server.scheme == "http" {
+            // ATS refuses plain HTTP to this host (it lets it reach local ones only), so the
+            // server is tried over https (App Review typed its address with http://).
+            var components = URLComponents(url: server, resolvingAgainstBaseURL: false)
+            components?.scheme = "https"
+            guard let secure = components?.url else { throw SignInError.plainHTTPBlocked }
+            do {
+                return try await start(server: secure, urlSession: urlSession)
+            } catch {
+                throw SignInError.plainHTTPBlocked
+            }
+        }
+    }
+
+    private static func start(server: URL, urlSession: URLSession) async throws -> MiAuthSession {
         let info: ServerInfo
         do {
             info = try await ServerInfo.fetch(from: server, session: urlSession)
         } catch let error as MisskeyAPIError where !error.isTransient {
+            // A connection ATS refused never reached the server to tell.
+            if case .transport = error { throw error }
             throw SignInError.notMisskey
         }
         guard info.features?.miauth ?? false else { throw SignInError.miauthUnsupported }
@@ -114,6 +134,7 @@ struct PendingMiAuthStore {
 enum SignInError: Error, LocalizedError, Equatable {
     case invalidAddress
     case notMisskey
+    case plainHTTPBlocked
     case miauthUnsupported
     case notApproved
     case keychain
@@ -122,6 +143,7 @@ enum SignInError: Error, LocalizedError, Equatable {
         switch self {
         case .invalidAddress: "サーバーのアドレスを確認してください"
         case .notMisskey: "Misskey のサーバーではないようです"
+        case .plainHTTPBlocked: "このサーバーには http では接続できず、https でも接続できませんでした"
         case .miauthUnsupported: "このサーバーはアプリからのログイン（MiAuth）に対応していません"
         case .notApproved: "ログインが完了しませんでした。もう一度お試しください"
         case .keychain: "ログイン情報を保存できませんでした"

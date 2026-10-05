@@ -93,6 +93,37 @@ struct SignInTests {
         }
     }
 
+    /// ATS refuses plain HTTP to public hosts (`URLError.appTransportSecurityRequiresSecureConnection`).
+    private static func refusesPlainHTTP(_ request: URLRequest) throws {
+        if request.url?.scheme == "http" { throw URLError(.appTransportSecurityRequiresSecureConnection) }
+    }
+
+    @Test func aServerTypedWithHTTPIsReachedOverHTTPSWhenATSRefusesIt() async throws {
+        let refusesHTTP = StubURLProtocol.session { request, body in
+            try Self.refusesPlainHTTP(request)
+            return self.meta(miauth: true, body: body)
+        }
+        let session = try await MiAuthSession.start("http://misskey.example", urlSession: refusesHTTP)
+        #expect(session.server == TestData.server)
+
+        let neither = StubURLProtocol.session { request, _ in
+            try Self.refusesPlainHTTP(request)
+            throw URLError(.cannotConnectToHost)
+        }
+        await #expect(throws: SignInError.plainHTTPBlocked) {
+            try await MiAuthSession.start("http://misskey.example", urlSession: neither)
+        }
+    }
+
+    @Test func aServerATSLetsThroughStaysOnHTTP() async throws {
+        let local = StubURLProtocol.session { request, body in
+            #expect(request.url?.scheme == "http")
+            return self.meta(miauth: true, body: body)
+        }
+        let session = try await MiAuthSession.start("http://localhost:3000", urlSession: local)
+        #expect(session.server.absoluteString == "http://localhost:3000")
+    }
+
     @Test func completingExchangesTheSessionForATokenOnceApproved() async throws {
         let approved = Locked(false)
         let urlSession = StubURLProtocol.session { request, body in

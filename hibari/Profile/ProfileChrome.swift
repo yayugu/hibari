@@ -247,11 +247,12 @@ final class ProfileTopBar: UIView {
             view.frame = CGRect(x: x, y: (rowMidY - height / 2).rounded(), width: width, height: height)
             view.transform = transform
         }
-        place(backButton, x: edge, width: size, height: size)
+        let insets = topBarInsets
+        place(backButton, x: insets.left + edge, width: size, height: size)
         let followSize = followButton.intrinsicContentSize
-        let followX = bounds.width - edge - followSize.width
+        let followX = bounds.width - insets.right - edge - followSize.width
         place(followButton, x: followX, width: followSize.width, height: followSize.height)
-        let trailing = bounds.width - edge - size
+        let trailing = bounds.width - insets.right - edge - size
         place(searchButton, x: trailing - 8 - size, width: size, height: size)
         place(moreButton, x: showsFollow ? followX - 8 - size : trailing, width: size, height: size)
     }

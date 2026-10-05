@@ -57,10 +57,12 @@ final class HeaderView: UIView {
         super.layoutSubviews()
         let w = bounds.width
         contentView.frame = bounds
-        accountButton.frame = CGRect(x: 10, y: 0, width: 44, height: Self.topRowHeight)
+        let insets = topBarInsets
+        accountButton.frame = CGRect(x: insets.left + 10, y: 0, width: 44, height: Self.topRowHeight)
         avatar.frame = CGRect(x: 6, y: (Self.topRowHeight - Self.avatarSize) / 2, width: Self.avatarSize, height: Self.avatarSize)
         logo.frame = CGRect(x: (w - 28) / 2, y: (Self.topRowHeight - 28) / 2, width: 28, height: 28)
-        titleLabel.frame = CGRect(x: 64, y: 0, width: max(0, w - 128), height: Self.topRowHeight)
+        let side = 64 + max(insets.left, insets.right)
+        titleLabel.frame = CGRect(x: side, y: 0, width: max(0, w - 2 * side), height: Self.topRowHeight)
         tabStrip.frame = CGRect(x: 0, y: Self.topRowHeight, width: w, height: Self.tabsHeight)
         let scale = window?.screen.scale ?? traitCollection.displayScale
         hairline.frame = CGRect(x: 0, y: bounds.height - 1 / scale, width: w, height: 1 / scale)

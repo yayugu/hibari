@@ -181,7 +181,8 @@ final class DrawerViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let width = view.bounds.width
-        let top = view.safeAreaInsets.top + 12
+        // Below the window's controls on iPad (they sit over the avatar's corner).
+        let top = view.edgeInsets(for: .safeArea(cornerAdaptation: .vertical)).top + 12
         let inset = Self.inset
         let contentWidth = width - inset * 2
 

@@ -94,23 +94,25 @@ final class SearchHeaderView: UIView {
     private func layoutRow() {
         let w = bounds.width
         let row = CGRect(x: 0, y: topInset, width: w, height: Self.rowHeight)
+        let insets = topBarInsets
         let fieldX: CGFloat
         switch leading {
         case .avatar:
-            leadingButton.frame = CGRect(x: 10, y: row.minY, width: 44, height: row.height)
+            leadingButton.frame = CGRect(x: insets.left + 10, y: row.minY, width: 44, height: row.height)
             avatar.frame = CGRect(x: 6, y: (row.height - Self.avatarSize) / 2, width: Self.avatarSize,
                                   height: Self.avatarSize)
             avatar.layer.cornerRadius = Self.avatarSize / 2
             avatar.clipsToBounds = true
-            fieldX = 62
+            fieldX = insets.left + 62
         case .back:
-            leadingButton.frame = CGRect(x: 6, y: row.minY, width: 44, height: row.height)
-            fieldX = 57
+            leadingButton.frame = CGRect(x: insets.left + 6, y: row.minY, width: 44, height: row.height)
+            fieldX = insets.left + 57
         }
+        let trailingX = w - insets.right
         let cancelWidth = ceil(cancelButton.sizeThatFits(row.size).width)
-        cancelButton.frame = CGRect(x: w - 16 - cancelWidth + (isEditing ? 0 : cancelWidth + 16), y: row.minY,
-                                    width: cancelWidth, height: row.height)
-        let fieldMaxX = isEditing ? cancelButton.frame.minX - 12 : w - 16
+        cancelButton.frame = CGRect(x: trailingX - 16 - cancelWidth + (isEditing ? 0 : cancelWidth + 16 + insets.right),
+                                    y: row.minY, width: cancelWidth, height: row.height)
+        let fieldMaxX = isEditing ? cancelButton.frame.minX - 12 : trailingX - 16
         field.frame = CGRect(x: fieldX, y: row.minY + (row.height - Self.fieldHeight) / 2,
                              width: max(0, fieldMaxX - fieldX), height: Self.fieldHeight)
     }

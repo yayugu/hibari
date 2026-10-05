@@ -78,13 +78,26 @@ final class NavigationHeaderView: UIView {
         let w = bounds.width
         let tabsHeight = tabs == nil ? 0 : self.tabsHeight
         rowView.frame = CGRect(x: 0, y: bounds.height - tabsHeight - Self.rowHeight, width: w, height: Self.rowHeight)
-        backButton.frame = CGRect(x: 6, y: 0, width: 44, height: Self.rowHeight)
-        trailingButton?.frame = CGRect(x: w - 6 - 44, y: 0, width: 44, height: Self.rowHeight)
-        titleLabel.frame = CGRect(x: 64, y: 0, width: max(0, w - 128), height: Self.rowHeight)
+        let insets = rowView.topBarInsets
+        backButton.frame = CGRect(x: insets.left + 6, y: 0, width: 44, height: Self.rowHeight)
+        trailingButton?.frame = CGRect(x: w - insets.right - 6 - 44, y: 0, width: 44, height: Self.rowHeight)
+        let side = 64 + max(insets.left, insets.right)
+        titleLabel.frame = CGRect(x: side, y: 0, width: max(0, w - 2 * side), height: Self.rowHeight)
         tabs?.frame = CGRect(x: 0, y: bounds.height - tabsHeight, width: w, height: tabsHeight)
         let scale = window?.screen.scale ?? traitCollection.displayScale
         hairline.frame = CGRect(x: 0, y: bounds.height - 1 / scale, width: w, height: 1 / scale)
         rowHairline?.frame = CGRect(x: 0, y: rowView.frame.maxY - 1 / scale, width: w, height: 1 / scale)
+    }
+}
+
+extension UIView {
+    /// The room to leave at the sides of a bar along the top of the window: the safe area,
+    /// and on iPad the window's controls (close, minimize, full screen) in the top leading
+    /// corner, which cover what is under them and take its taps. Asked of the window, not
+    /// of the bar: a screen sliding in is laid out away from the corner, and not again
+    /// once it gets there.
+    var topBarInsets: UIEdgeInsets {
+        (window ?? self).edgeInsets(for: .safeArea(cornerAdaptation: .horizontal))
     }
 }
 

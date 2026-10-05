@@ -146,7 +146,7 @@ final class MediaViewerController: UIViewController {
         if !pager.isDragging && !pager.isDecelerating {
             pager.contentOffset.x = pageWidth * CGFloat(currentIndex)
         }
-        backButton.frame = CGRect(x: 16, y: safe.top + 6, width: 44, height: 44)
+        backButton.frame = CGRect(x: view.topBarInsets.left + 16, y: safe.top + 6, width: 44, height: 44)
         let dots = pageControl.sizeThatFits(bounds.size)
         pageControl.frame = CGRect(x: (bounds.width - dots.width) / 2, y: bounds.height - safe.bottom - dots.height - 8,
                                    width: dots.width, height: dots.height)

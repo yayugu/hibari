@@ -257,11 +257,13 @@ final class ComposeViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let width = view.bounds.width
+        let bar = topBar.topBarInsets
         let cancelSize = cancelButton.sizeThatFits(CGSize(width: 200, height: Self.topBarHeight))
-        cancelButton.frame = CGRect(x: Self.padding - 8, y: (Self.topBarHeight - cancelSize.height) / 2,
+        cancelButton.frame = CGRect(x: bar.left + Self.padding - 8, y: (Self.topBarHeight - cancelSize.height) / 2,
                                     width: cancelSize.width, height: cancelSize.height)
         let postSize = postButton.sizeThatFits(CGSize(width: 200, height: 36))
-        postButton.frame = CGRect(x: width - Self.padding - postSize.width, y: (Self.topBarHeight - postSize.height) / 2,
+        postButton.frame = CGRect(x: width - bar.right - Self.padding - postSize.width,
+                                  y: (Self.topBarHeight - postSize.height) / 2,
                                   width: postSize.width, height: postSize.height)
 
         let scale = traitCollection.displayScale > 0 ? traitCollection.displayScale : 3

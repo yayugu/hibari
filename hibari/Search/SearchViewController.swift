@@ -217,6 +217,10 @@ extension SearchViewController: UITableViewDataSource, UITableViewDelegate {
         services.openSearch("#" + trends[indexPath.row].tag, from: self)
     }
 
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        pullToRefresh.scrollViewWillBeginDragging(scrollView)
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         pullToRefresh.scrollViewDidScroll(scrollView)
     }

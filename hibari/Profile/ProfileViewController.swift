@@ -30,7 +30,8 @@ final class ProfileViewController: UIViewController {
     private(set) var currentIndex = 0
     private var geometry = Geometry()
     private var isRefreshing = false
-    private var refreshArmed = true
+    /// This drag can still start a refresh, as in `PullToRefresh`.
+    private var refreshArmed = false
 
     private static let refreshDistance = PullToRefresh.triggerDistance
 
@@ -253,7 +254,7 @@ final class ProfileViewController: UIViewController {
             : min(1, max(0, (s - g.collapseDistance) / max(1, blurEnd - g.collapseDistance)))
         banner.setBlur(blur)
 
-        if !isRefreshing {
+        if refreshArmed {
             banner.spinner.alpha = s < 0 ? min(1, -s / Self.refreshDistance) : 0
         }
         banner.spinner.center = CGPoint(x: width / 2, y: topBar.rowMidY)
@@ -291,15 +292,13 @@ final class ProfileViewController: UIViewController {
     }
 
     private func pullDidChange(_ scrollView: UIScrollView) {
-        let s = scrolled
-        if !isRefreshing && s >= -1 { refreshArmed = true }
-        guard refreshArmed, !isRefreshing, scrollView.isDragging, s <= -Self.refreshDistance else { return }
-        refreshArmed = false
+        guard refreshArmed, scrollView.isDragging, scrolled <= -Self.refreshDistance else { return }
         refresh()
     }
 
     private func refresh() {
         isRefreshing = true
+        refreshArmed = false
         refreshFeedback.impactOccurred()
         banner.spinner.alpha = 1
         banner.spinner.startAnimating()
@@ -665,6 +664,11 @@ final class ProfileViewController: UIViewController {
 }
 
 extension ProfileViewController: TimelineScrollObserver {
+    func timelineWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === currentTimeline?.collectionView else { return }
+        refreshArmed = !isRefreshing
+    }
+
     func timelineDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === currentTimeline?.collectionView else { return }
         applyScroll()

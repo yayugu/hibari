@@ -187,6 +187,48 @@ struct TimelineRefreshTests {
         #expect(cursors.dropFirst().first == prefix + updated[AppSettings.timelinePageSize - 1])
     }
 
+    @Test func aReplacedListShowsFromTheTopButLeavesAPullAsTheFingerHoldsIt() async throws {
+        let server = Server(ids(10))
+        let screen = try await screen(.bookmarks, server: server)
+        let collectionView = screen.timeline.collectionView
+        let top = -collectionView.adjustedContentInset.top
+        collectionView.contentOffset.y = top + 200
+        await TimelineTestSupport.refresh(screen.timeline)
+        #expect(collectionView.contentOffset.y == top)
+        collectionView.contentOffset.y = top - 60
+        await TimelineTestSupport.refresh(screen.timeline)
+        #expect(collectionView.contentOffset.y == top - 60)
+    }
+
+    private final class DraggedScrollView: UIScrollView {
+        var isHeld = false
+        override var isDragging: Bool { isHeld }
+    }
+
+    @Test func aDragStartsOneRefreshEvenWhenTheContentMovesUnderTheFinger() {
+        let scrollView = DraggedScrollView(frame: CGRect(x: 0, y: 0, width: 402, height: 240))
+        let pull = PullToRefresh(scrollView: scrollView)
+        var refreshes = 0
+        pull.onRefresh = { refreshes += 1 }
+        func drag(to distance: CGFloat) {
+            scrollView.contentOffset.y = -distance
+            pull.scrollViewDidScroll(scrollView)
+        }
+        scrollView.isHeld = true
+        pull.scrollViewWillBeginDragging(scrollView)
+        drag(to: 60)
+        pull.endRefreshing()
+        drag(to: 0)
+        drag(to: 60)
+        #expect(refreshes == 1)
+        scrollView.isHeld = false
+        drag(to: 0)
+        scrollView.isHeld = true
+        pull.scrollViewWillBeginDragging(scrollView)
+        drag(to: 60)
+        #expect(refreshes == 2)
+    }
+
     @Test(arguments: [List.bookmarks, .timeline(.home)])
     func aFailedRefreshKeepsTheExistingList(_ list: List) async throws {
         let server = Server()

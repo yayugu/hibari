@@ -20,7 +20,9 @@ final class PullToRefresh {
     private weak var scrollView: UIScrollView?
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let feedback = UIImpactFeedbackGenerator(style: .medium)
-    private var armed = true
+    /// This drag can still start a refresh: a drag starts at most one. Set when the drag
+    /// begins, not from where the content is, which the list can move under the finger.
+    private var armed = false
     private var startedAt = Date.distantPast
     private var pendingEnd: Task<Void, Never>?
 
@@ -38,14 +40,17 @@ final class PullToRefresh {
         -(scrollView.contentOffset.y + scrollView.adjustedContentInset.top - inset)
     }
 
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        armed = !isRefreshing
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let distance = pulled(scrollView)
         spinner.center = CGPoint(x: scrollView.bounds.midX, y: -max(distance, Self.room) / 2)
-        if !isRefreshing {
+        if armed {
             spinner.alpha = min(1, max(0, (distance - 8) / (Self.triggerDistance - 8)))
-            if distance <= 1 { armed = true }
         }
-        guard armed, !isRefreshing, scrollView.isDragging, distance >= Self.triggerDistance else { return }
+        guard armed, scrollView.isDragging, distance >= Self.triggerDistance else { return }
         armed = false
         isRefreshing = true
         startedAt = Date()
@@ -65,6 +70,7 @@ final class PullToRefresh {
     func beginRefreshing() {
         guard !isRefreshing, let scrollView else { return }
         isRefreshing = true
+        armed = false
         startedAt = Date()
         holdsUntil = startedAt.addingTimeInterval(Self.minimumDuration)
         spinner.startAnimating()

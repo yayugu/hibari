@@ -1,6 +1,7 @@
 import UIKit
 
 protocol TimelineScrollObserver: AnyObject {
+    func timelineWillBeginDragging(_ scrollView: UIScrollView)
     func timelineDidScroll(_ scrollView: UIScrollView)
     func timelineDidEndScrolling(_ scrollView: UIScrollView)
     /// The timeline moved its content to keep the notes on screen in place (notes came in
@@ -9,6 +10,8 @@ protocol TimelineScrollObserver: AnyObject {
 }
 
 extension TimelineScrollObserver {
+    func timelineWillBeginDragging(_ scrollView: UIScrollView) {}
+
     func timelineDidMoveContent(_ scrollView: UIScrollView) {
         timelineDidScroll(scrollView)
     }
@@ -386,7 +389,7 @@ final class TimelineViewController: UIViewController {
             updateListLayout()
             collectionView.reloadData()
             if presentation.startsOver {
-                scrollToTop(animated: false)
+                showFromTop()
                 hideNewNotesButton()
             }
             return
@@ -417,7 +420,7 @@ final class TimelineViewController: UIViewController {
         } else {
             let anchor = reveals && rows.insertedAbove > 0 ? nil : captureAnchor(in: old)
             reload(keeping: anchor)
-            if presentation.startsOver && anchor == nil { scrollToTop(animated: false) }
+            if presentation.startsOver && anchor == nil { showFromTop() }
         }
         if presentation.startsOver {
             hideNewNotesButton()
@@ -1112,6 +1115,13 @@ final class TimelineViewController: UIViewController {
         collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: animated)
     }
 
+    /// A list that started over shows from its top. Already there (or pulled past it, which
+    /// the finger may still hold), it stays as it is.
+    private func showFromTop() {
+        guard !isAtTop else { return }
+        scrollToTop(animated: false)
+    }
+
     private func updateFooter() {
         if !reachedEnd {
             setFooter(isLoadingPage || retryAfter == nil ? .loading : footerState)
@@ -1322,6 +1332,11 @@ extension TimelineViewController: UICollectionViewDataSource, UICollectionViewDe
         loadMoreIfNeeded()
         fillGapsIfNeeded()
         hideNewNotesButtonIfReached()
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        pullToRefresh?.scrollViewWillBeginDragging(scrollView)
+        scrollObserver?.timelineWillBeginDragging(scrollView)
     }
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,

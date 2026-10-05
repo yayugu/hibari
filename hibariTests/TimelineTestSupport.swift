@@ -2,6 +2,8 @@ import UIKit
 @testable import hibari
 
 /// Drives the common timeline controller without windows, gestures or real networking.
+/// Nothing lays its collection view out between changes, as for a list off screen: UIKit
+/// takes up its reloads only when an update or a test reads the rows.
 @MainActor
 enum TimelineTestSupport {
     static func services(client: MisskeyClient? = nil) throws -> NoteServices {
@@ -13,33 +15,18 @@ enum TimelineTestSupport {
         return NoteServices(session: session, renderer: NoteRenderer(imagePipeline: pipeline), imagePipeline: pipeline)
     }
 
-    static func layout(_ timeline: TimelineViewController) {
-        // Consume pending reloads before another request changes the item count:
-        // there is no window laying out this test's collection view.
-        timeline.collectionView.layoutIfNeeded()
-        _ = timeline.collectionView.numberOfItems(inSection: 0)
-    }
-
     static func loadAll(_ timeline: TimelineViewController) async {
         while timeline.hasMorePages {
-            layout(timeline)
             await withCheckedContinuation { continuation in
-                timeline.loadNextPage {
-                    layout(timeline)
-                    continuation.resume()
-                }
+                timeline.loadNextPage { continuation.resume() }
             }
         }
     }
 
     static func refresh(_ timeline: TimelineViewController, startingOver: Bool = false,
                         keepingPosition: Bool = false) async {
-        layout(timeline)
         await withCheckedContinuation { continuation in
-            timeline.refresh(startingOver: startingOver, keepingPosition: keepingPosition) {
-                layout(timeline)
-                continuation.resume()
-            }
+            timeline.refresh(startingOver: startingOver, keepingPosition: keepingPosition) { continuation.resume() }
         }
     }
 }

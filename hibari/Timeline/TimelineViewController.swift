@@ -66,7 +66,11 @@ final class TimelineViewController: UIViewController {
     private var entries: TimelineEntries
     /// What the collection view shows: `entries` as `presentEntries()` last showed them,
     /// behind while the list is held. What is about the screen (rows, positions, cells)
-    /// reads it.
+    /// reads it. It is what the data source answers, and UIKit reads the rows an update
+    /// starts from when it likes (a reload no layout has taken up yet, as in a list off
+    /// screen, only then): rows come and go in it only where UIKit is told at once, right
+    /// before `reloadData()` or inside the batch update saying which rows came and went
+    /// (`reloadData(showing:)`, `updateRows(to:removing:inserting:layout:)`).
     private var presented: TimelineEntries
     /// Keeps the rows still while a button's answer to a tap plays on one.
     let listHold = ListHold()
@@ -340,14 +344,18 @@ final class TimelineViewController: UIViewController {
     private func presentEntries() {
         guard !listHold.isHeld else { return showContentInPlace() }
         let old = presented
+        let new = entries
         let presentation = self.presentation
         self.presentation = Presentation()
-        presented = entries
-        guard isViewLoaded else { return }
-        if old.revision == presented.revision {
-            showContentChanges(from: old)
+        guard isViewLoaded else {
+            // No data source yet: it reads `presented` from the start.
+            presented = new
+            return
+        }
+        if old.revision == new.revision {
+            showContentChanges(from: old, to: new)
         } else {
-            showRowChanges(from: old, presentation)
+            showRowChanges(from: old, to: new, presentation)
         }
         updateFooter()
         updateGapViews()
@@ -376,50 +384,42 @@ final class TimelineViewController: UIViewController {
 
     /// The same rows: the cells whose rows were laid out again change, or the whole list
     /// is laid out again around the screen if heights changed.
-    private func showContentChanges(from old: TimelineEntries) {
-        if zip(old.layouts, presented.layouts).contains(where: { $0.height != $1.height }) {
-            reload(keeping: captureAnchor(in: old))
+    private func showContentChanges(from old: TimelineEntries, to new: TimelineEntries) {
+        if zip(old.layouts, new.layouts).contains(where: { $0.height != $1.height }) {
+            reload(showing: new, keeping: captureAnchor(in: old, keptIn: new))
         } else {
+            // The same rows: UIKit has nothing to start from that this changes.
+            presented = new
             configureChangedCells()
         }
     }
 
-    private func showRowChanges(from old: TimelineEntries, _ presentation: Presentation) {
+    private func showRowChanges(from old: TimelineEntries, to new: TimelineEntries, _ presentation: Presentation) {
         if old.isEmpty || presentation.startsOver && !presentation.keepsPosition {
-            updateListLayout()
-            collectionView.reloadData()
+            reloadData(showing: new)
             if presentation.startsOver {
                 showFromTop()
                 hideNewNotesButton()
             }
             return
         }
-        let rows = RowChanges(from: old, to: presented)
+        let rows = RowChanges(from: old, to: new)
         let reveals = isAtTop && !presentation.keepsPosition
-        let keepsGaps = old.gaps.map(\.id) == presented.gaps.map(\.id)
+        let keepsGaps = old.gaps.map(\.id) == new.gaps.map(\.id)
         let simple = keepsGaps && !rows.reshapes
-        // The layout changes inside the batch: the rows that stay move from where they are.
         if simple && rows.inserted.isEmpty {
-            collectionView.performBatchUpdates {
-                updateListLayout()
-                collectionView.deleteItems(at: rows.removed.map { IndexPath(item: $0, section: 0) })
-            }
-            configureChangedCells()
+            updateRows(to: new, removing: rows.removed)
         } else if simple && rows.removed.isEmpty && rows.inserted.first == old.count {
-            listLayout.appendHeights(presented.layouts[old.count...].map(\.height))
             UIView.performWithoutAnimation {
-                collectionView.insertItems(at: rows.inserted.map { IndexPath(item: $0, section: 0) })
+                updateRows(to: new, inserting: rows.inserted) {
+                    self.listLayout.appendHeights(new.layouts[old.count...].map(\.height))
+                }
             }
-            configureChangedCells()
         } else if simple && reveals && rows.removed.isEmpty && rows.inserted.count == rows.insertedAbove {
-            collectionView.performBatchUpdates {
-                updateListLayout()
-                collectionView.insertItems(at: rows.inserted.map { IndexPath(item: $0, section: 0) })
-            }
-            configureChangedCells()
+            updateRows(to: new, inserting: rows.inserted)
         } else {
-            let anchor = reveals && rows.insertedAbove > 0 ? nil : captureAnchor(in: old)
-            reload(keeping: anchor)
+            let anchor = reveals && rows.insertedAbove > 0 ? nil : captureAnchor(in: old, keptIn: new)
+            reload(showing: new, keeping: anchor)
             if presentation.startsOver && anchor == nil { showFromTop() }
         }
         if presentation.startsOver {
@@ -457,6 +457,28 @@ final class TimelineViewController: UIViewController {
         }
     }
 
+    /// Shows `new` by the rows that went and came, in one batch update. UIKit takes the
+    /// rows it starts from before the block runs (taking up a reload still waiting for
+    /// layout then), so `presented` changes in it, and the layout too: the rows that stay
+    /// move from where they are.
+    private func updateRows(to new: TimelineEntries, removing removed: [Int] = [], inserting inserted: [Int] = [],
+                            layout: (() -> Void)? = nil) {
+        collectionView.performBatchUpdates {
+            presented = new
+            if let layout { layout() } else { updateListLayout() }
+            collectionView.deleteItems(at: removed.map { IndexPath(item: $0, section: 0) })
+            collectionView.insertItems(at: inserted.map { IndexPath(item: $0, section: 0) })
+        }
+        configureChangedCells()
+    }
+
+    /// Shows `new` from scratch: UIKit reads every row again, when it next needs them.
+    private func reloadData(showing new: TimelineEntries) {
+        presented = new
+        updateListLayout()
+        collectionView.reloadData()
+    }
+
     /// Gives the cells on screen their row's layout where it changed.
     private func configureChangedCells() {
         for indexPath in collectionView.indexPathsForVisibleItems where indexPath.item < presented.count {
@@ -477,15 +499,15 @@ final class TimelineViewController: UIViewController {
     }
 
     /// The row at the top of the screen (in `old`, what showed until now) and how far into
-    /// it the screen starts. If that row is no longer in `presented`, the first one on screen
-    /// below it that is.
-    private func captureAnchor(in old: TimelineEntries) -> Anchor? {
+    /// it the screen starts. If that row is not in `new`, the first one on screen below it
+    /// that is.
+    private func captureAnchor(in old: TimelineEntries, keptIn new: TimelineEntries) -> Anchor? {
         let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
         let bottom = collectionView.contentOffset.y + collectionView.bounds.height
         guard var index = listLayout.firstItem(endingBelow: top) else { return nil }
         while index < old.count, let offset = listLayout.offset(ofItem: index), offset < bottom {
             let noteID = old.items[index].id
-            guard presented.contains(noteID) else {
+            guard new.contains(noteID) else {
                 index += 1
                 continue
             }
@@ -504,13 +526,13 @@ final class TimelineViewController: UIViewController {
         return nil
     }
 
-    private func reload(keeping anchor: Anchor?) {
+    /// Shows `new` from scratch, with `anchor`'s row where it was on screen.
+    private func reload(showing new: TimelineEntries, keeping anchor: Anchor?) {
         #if PERF
         let started = CACurrentMediaTime()
         #endif
         isAdjustingPosition = true
-        updateListLayout()
-        collectionView.reloadData()
+        reloadData(showing: new)
         collectionView.layoutIfNeeded()
         if let anchor, let index = presented.index(of: anchor.noteID), let offset = listLayout.offset(ofItem: index) {
             let delta = min(anchor.delta, presented.layouts[index].height)

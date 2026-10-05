@@ -246,7 +246,6 @@ struct TimelineRefreshTests {
         let server = Server()
         let screen = try await screen(.timeline(.home), server: server)
         let timeline = screen.timeline
-        TimelineTestSupport.layout(timeline)
         let indexPath = try #require(timeline.indexPath(forNote: "n005"))
         let frame = try #require(timeline.collectionView.layoutAttributesForItem(at: indexPath)).frame
         timeline.collectionView.contentOffset.y = frame.minY + 10
@@ -299,7 +298,6 @@ struct TimelineRefreshTests {
         #expect(timeline.collectionView.numberOfItems(inSection: 0) == 4)
         #expect(timeline.indexPath(forNote: "n005") != nil && timeline.indexPath(forNote: "n008") == nil)
         hold.end()
-        TimelineTestSupport.layout(timeline)
         expectIDs(["n008", "n007", "n006", "n004", "n003"], in: timeline)
     }
 
@@ -307,17 +305,36 @@ struct TimelineRefreshTests {
         let server = Server()
         let screen = try await screen(.bookmarks, server: server)
         server.cursors.withLock { $0.removeAll() }
-        TimelineTestSupport.layout(screen.timeline)
         await withCheckedContinuation { continuation in
             screen.timeline.refresh()
             server.update(["n007", "n006"])
-            screen.timeline.refresh {
-                TimelineTestSupport.layout(screen.timeline)
-                continuation.resume()
-            }
+            screen.timeline.refresh { continuation.resume() }
         }
         expectIDs(["n007", "n006"], in: screen.timeline)
         #expect(server.cursors.withLock { $0 }.filter { $0 == nil }.count == 2, "the newest page, twice")
+    }
+
+    // Nothing lays these lists out, as for one off screen: the reload that showed the first
+    // page still waits for layout when the next change comes, and UIKit only then reads
+    // the rows that change starts from.
+    @Test func aListNotLaidOutTakesTheNextPages() async throws {
+        let original = ids(AppSettings.timelinePageSize * 2 + 5)
+        let screen = try await screen(.timeline(.home), server: Server(original))
+        expectIDs(original, in: screen.timeline)
+    }
+
+    @Test func aListNotLaidOutTakesARemoval() async throws {
+        let screen = try await screen(.timeline(.home), server: Server())
+        screen.timeline.remove(noteID: "n005")
+        expectIDs(["n006", "n004", "n003"], in: screen.timeline)
+    }
+
+    @Test func aListNotLaidOutTakesNewNotesAtTheTop() async throws {
+        let server = Server()
+        let screen = try await screen(.timeline(.home), server: server)
+        server.update(["n008", "n007", "n006", "n005", "n004", "n003"])
+        await TimelineTestSupport.refresh(screen.timeline)
+        expectIDs(["n008", "n007", "n006", "n005", "n004", "n003"], in: screen.timeline)
     }
 
     @Test func undoingARenoteRemovesItsRowInTheCommonController() async throws {

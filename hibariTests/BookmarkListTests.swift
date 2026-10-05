@@ -89,11 +89,9 @@ struct BookmarkListTests {
         let note = try #require(timeline.item(forNote: "n1")?.note)
         let hold = timeline.listHold.begin()
         screen.services.bookmarks.toggle(note)
-        TimelineTestSupport.layout(timeline)
         #expect(!timeline.contains(noteID: "n1") && timeline.noteCount == 1)
         #expect(timeline.collectionView.numberOfItems(inSection: 0) == 2 && timeline.indexPath(forNote: "n1") != nil)
         hold.end()
-        TimelineTestSupport.layout(timeline)
         #expect(timeline.collectionView.numberOfItems(inSection: 0) == 1 && timeline.indexPath(forNote: "n1") == nil)
     }
 
@@ -108,8 +106,7 @@ struct BookmarkListTests {
         }
         hold.end()
         try await wait {
-            TimelineTestSupport.layout(timeline)
-            return server.ids.withLock { $0 == ["n2", "n1"] } && timeline.indexPath(forNote: "n2") != nil
+            server.ids.withLock { $0 == ["n2", "n1"] } && timeline.indexPath(forNote: "n2") != nil
         }
         #expect(timeline.collectionView.numberOfItems(inSection: 0) == 2)
         #expect(screen.services.bookmarks.isBookmarked(note))

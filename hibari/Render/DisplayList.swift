@@ -5,24 +5,6 @@ enum Icon: UInt8, Hashable, Sendable {
     case renoteBadge, visibilityHome, visibilityFollowers, visibilitySpecified, file, check
     case person, poll, clock, bell, medal
 
-    var assetName: String? {
-        switch self {
-        case .reply: "NoteReply"
-        case .renote, .renoteBadge: "NoteRenote"
-        case .reaction: "NoteReact"
-        case .reacted: "NoteReacted"
-        case .like: "NoteLike"
-        case .liked: "NoteLiked"
-        case .bookmark: "NoteBookmark"
-        case .bookmarked: "NoteBookmarked"
-        case .share: "NoteShare"
-        case .visibilityHome: "VisibilityHome"
-        case .visibilityFollowers: "VisibilityFollowers"
-        case .visibilitySpecified: "VisibilitySpecified"
-        default: nil
-        }
-    }
-
     var symbolName: String {
         switch self {
         case .reply: "bubble.left"

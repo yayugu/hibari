@@ -10,6 +10,7 @@ final class ActionSheetController: UIViewController {
         let perform: () -> Void
     }
 
+    static let iconSize: CGFloat = 22
     private static let inset: CGFloat = 8
     private static let rowHeight: CGFloat = 56
 
@@ -184,7 +185,7 @@ private final class ActionSheetRow: UIControl {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let iconSize: CGFloat = 22
+        let iconSize = ActionSheetController.iconSize
         iconView.frame = CGRect(x: 23, y: (bounds.height - iconSize) / 2, width: iconSize, height: iconSize)
         let x: CGFloat = 63
         titleLabel.frame = CGRect(x: x, y: 0, width: bounds.width - x - 16, height: bounds.height)

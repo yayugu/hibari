@@ -317,8 +317,7 @@ final class FocusedNoteView: UIView {
     private func configureActions(fontSize: CGFloat) {
         func style(_ button: UIButton, icon: Icon, count: Int?, tint: UIColor) {
             var configuration = UIButton.Configuration.plain()
-            configuration.image = icon.assetName.flatMap { UIImage(named: $0)?.withRenderingMode(.alwaysTemplate) }
-                ?? UIImage(systemName: icon.symbolName, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18))
+            configuration.image = IconStore.shared.templateImage(icon, size: CGSize(width: 18, height: 18), scale: scale)
             configuration.imagePadding = 5
             configuration.baseForegroundColor = tint
             configuration.contentInsets = NSDirectionalEdgeInsets(top: 13, leading: 13, bottom: 13, trailing: 13)

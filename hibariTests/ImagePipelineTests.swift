@@ -80,6 +80,26 @@ struct ImagePipelineTests {
         #expect(Rasterizer.render(normal, palette: .dark, scale: 3) { _ in nil } != nil)
     }
 
+    /// Both render threads want the same action icons when the first notes are drawn. Drawing
+    /// one of UIKit's vector images on two threads at once corrupts memory (the app crashed on
+    /// launch), so each icon is drawn once, by one thread, whoever asks.
+    @Test func iconsWantedOnManyThreadsAtOnceAreDrawnOnceEach() {
+        let icons: [Icon] = [.reply, .renote, .reaction, .bookmark, .share, .file]
+        for round in 0..<300 {
+            let store = IconStore()
+            let icon = icons[round % icons.count]
+            let sizes = [CGSize(width: 18, height: 18), CGSize(width: 22, height: 22)]
+            let images = Locked<[[CGImage]]>([[], []])
+            DispatchQueue.concurrentPerform(iterations: 8) { index in
+                let image = store.image(icon, size: sizes[index % 2], role: .secondaryText, palette: .dark, scale: 3)
+                if let image { images.withLock { $0[index % 2].append(image) } }
+            }
+            for drawn in images.withLock({ $0 }) {
+                #expect(drawn.count == 4 && drawn.allSatisfy { $0 === drawn[0] }, "\(icon) in round \(round)")
+            }
+        }
+    }
+
     @Test func emojisComeFromTheirOwnSource() async throws {
         let directory = temporaryDirectory()
         let pipeline = ImagePipeline(source: SampleMediaSource(),

@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreText
 import UIKit
+import os
 
 enum Rasterizer {
     static let maxPixelDimension = 16384
@@ -73,6 +74,11 @@ enum Rasterizer {
     }
 }
 
+/// Icons are drawn with UIKit from the app's SVGs (asset catalog) and SF Symbols, on whichever
+/// thread wants one. Drawing one of the SVGs on two threads at once corrupts memory: UIKit
+/// over-releases the image's data from the asset catalog (the app crashed on launch when both
+/// render threads drew the first notes' action icons). So icons are drawn one at a time, each
+/// once, and the SVGs are drawn only here: UIKit views take them from `templateImage`.
 final class IconStore: Sendable {
     static let shared = IconStore()
 
@@ -83,20 +89,41 @@ final class IconStore: Sendable {
         let role: ColorRole
         let style: ThemeStyle
         let scale: Int
+        let fills: Bool
     }
 
     private let cache = Locked<[Key: ImageBox]>([:])
+    /// Held while drawing (`cache` is not, so cached icons stay quick to get meanwhile).
+    private let drawing = OSAllocatedUnfairLock()
 
+    /// The icon at most at its natural size, centered in `size`.
     func image(_ icon: Icon, size: CGSize, role: ColorRole, palette: Palette, scale: CGFloat) -> CGImage? {
-        let key = Key(icon: icon, width: Int(size.width * 100), height: Int(size.height * 100), role: role,
-                      style: palette.style, scale: Int(scale * 100))
-        if let hit = cache.withLock({ $0[key] }) { return hit.image }
-        guard let image = Self.draw(icon, size: size, color: palette[role], scale: scale) else { return nil }
-        cache.withLock { $0[key] = ImageBox(image) }
-        return image
+        image(icon, size: size, role: role, palette: palette, scale: scale, fills: false)
     }
 
-    private static func draw(_ icon: Icon, size: CGSize, color: CGColor, scale: CGFloat) -> CGImage? {
+    /// For UIKit views, which tint it with their tint color. The icon fills `size`, as an image
+    /// view scales a vector image to fit.
+    func templateImage(_ icon: Icon, size: CGSize, scale: CGFloat) -> UIImage? {
+        image(icon, size: size, role: .primaryText, palette: .light, scale: scale, fills: true)
+            .map { UIImage(cgImage: $0, scale: scale, orientation: .up).withRenderingMode(.alwaysTemplate) }
+    }
+
+    private func image(_ icon: Icon, size: CGSize, role: ColorRole, palette: Palette, scale: CGFloat,
+                       fills: Bool) -> CGImage? {
+        let key = Key(icon: icon, width: Int(size.width * 100), height: Int(size.height * 100), role: role,
+                      style: palette.style, scale: Int(scale * 100), fills: fills)
+        if let hit = cache.withLock({ $0[key] }) { return hit.image }
+        return drawing.withLock { () -> ImageBox? in
+            if let hit = cache.withLock({ $0[key] }) { return hit }
+            guard let image = Self.draw(icon, size: size, color: palette[role], scale: scale, fills: fills)
+            else { return nil }
+            let box = ImageBox(image)
+            cache.withLock { $0[key] = box }
+            return box
+        }?.image
+    }
+
+    private static func draw(_ icon: Icon, size: CGSize, color: CGColor, scale: CGFloat, fills: Bool) -> CGImage? {
         let configuration = UIImage.SymbolConfiguration(
             pointSize: size.height * 0.8,
             weight: icon.weight == .bold ? .bold : .regular)
@@ -110,11 +137,32 @@ final class IconStore: Sendable {
         format.opaque = false
         let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
             let natural = symbol.size
-            let fit = min(1, size.width / natural.width, size.height / natural.height)
+            let fit = min(fills ? .infinity : 1, size.width / natural.width, size.height / natural.height)
             let w = natural.width * fit
             let h = natural.height * fit
             symbol.draw(in: CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h))
         }
         return rendered.cgImage
+    }
+}
+
+private extension Icon {
+    /// Only `IconStore` draws these (see there).
+    var assetName: String? {
+        switch self {
+        case .reply: "NoteReply"
+        case .renote, .renoteBadge: "NoteRenote"
+        case .reaction: "NoteReact"
+        case .reacted: "NoteReacted"
+        case .like: "NoteLike"
+        case .liked: "NoteLiked"
+        case .bookmark: "NoteBookmark"
+        case .bookmarked: "NoteBookmarked"
+        case .share: "NoteShare"
+        case .visibilityHome: "VisibilityHome"
+        case .visibilityFollowers: "VisibilityFollowers"
+        case .visibilitySpecified: "VisibilitySpecified"
+        default: nil
+        }
     }
 }

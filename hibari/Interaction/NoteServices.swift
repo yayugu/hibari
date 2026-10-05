@@ -234,7 +234,9 @@ extension NoteServices {
     func renoteTapped(_ note: Note, from controller: UIViewController, willChange: ((Bool) -> Void)? = nil) {
         let allowed = note.canBeRenoted(by: account)
         let busy = renotes.isBusy(note)
-        let icon = UIImage(named: "NoteRenote")
+        let side = ActionSheetController.iconSize
+        let icon = IconStore.shared.templateImage(.renote, size: CGSize(width: side, height: side),
+                                                  scale: controller.traitCollection.displayScale)
         let renote = renotes.isRenoted(note)
             ? ActionSheetController.Action(title: "リノートを取り消す", image: icon, isEnabled: !busy) { [weak self] in
                 self?.undoRenote(note) { willChange?(false) }

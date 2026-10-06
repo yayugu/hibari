@@ -5,6 +5,9 @@ enum MiAuth {
     static let callback = "\(callbackScheme)://miauth"
     static let appName = "Hibari"
 
+    /// A token keeps the permissions it was made with: when the server refuses an account
+    /// signed in before one was added, the app offers to sign in again
+    /// (`AppRouter.lacksPermission`), which replaces the account's token.
     static let permissions = [
         "read:account", "write:account",
         "read:following", "write:following",

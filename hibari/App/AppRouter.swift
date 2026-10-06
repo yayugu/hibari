@@ -158,8 +158,10 @@ final class AppRouter {
         loadedResources = (account.server, resources)
 
         let accountID = account.id
-        let session = TimelineSession.live(account: account, token: token, resources: resources) {
-            [weak unread] in
+        let session = TimelineSession.live(account: account, token: token, resources: resources,
+                                           onMissingPermission: { [weak self, account] in
+            Task { @MainActor in self?.lacksPermission(account) }
+        }) { [weak unread] in
             Task { @MainActor in unread?.didRead(accountID) }
         }
         if let previous = self.root, accounts.accounts.contains(where: { $0.id == previous.session.account.id }) {
@@ -226,7 +228,8 @@ final class AppRouter {
         container.present(list, animated: true)
     }
 
-    private func showAddAccount() {
+    /// `server`: signs in to it without asking.
+    private func showAddAccount(server: URL? = nil) {
         guard let container, container.presentedViewController == nil else { return }
         let controller = SignInViewController(onClose: { [weak container] in
             container?.dismiss(animated: true)
@@ -241,7 +244,32 @@ final class AppRouter {
             }
         }
         controller.isModalInPresentation = true
-        container.present(controller, animated: true)
+        container.present(controller, animated: true) {
+            if let server { controller.signIn(to: server) }
+        }
+    }
+
+    /// The server refused the open account a request for a permission its token was not
+    /// granted (signed in before Hibari asked for it): offers to sign in to it again.
+    private func lacksPermission(_ account: Account) {
+        guard let container, root?.session.account.id == account.id else { return }
+        var top: UIViewController = container
+        while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+        guard !(top is UIAlertController) else { return }
+        let alert = UIAlertController(
+            title: "ログインし直してください",
+            message: "この操作には、\(account.acct) でまだ Hibari に許可されていない権限が必要です。ログインし直すと使えるようになります。",
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "キャンセル", style: .cancel))
+        alert.addAction(UIAlertAction(title: "ログイン", style: .default) { [weak self] _ in
+            self?.dismissSheet { self?.showAddAccount(server: account.server) }
+        })
+        // After a screen going away (the emoji picker of a reaction), over the one under it.
+        let leaving = top.presentedViewController?.transitionCoordinator
+        let present: () -> Void = { [weak top] in top?.present(alert, animated: true) }
+        if leaving?.animate(alongsideTransition: nil, completion: { _ in present() }) != true {
+            present()
+        }
     }
 
     private func signOut(_ account: Account) {

@@ -4,6 +4,9 @@ struct MisskeyClient: Sendable {
     let server: URL
     let token: String?
     let session: URLSession
+    /// The server refused a request for a permission the token was not granted (called on
+    /// any thread).
+    var onMissingPermission: (@Sendable () -> Void)?
 
     init(server: URL, token: String? = nil, session: URLSession = .misskeyAPI) {
         self.server = server
@@ -37,7 +40,9 @@ struct MisskeyClient: Sendable {
         }
         guard let http = response as? HTTPURLResponse else { throw MisskeyAPIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
-            throw MisskeyAPIError.server(status: http.statusCode, MisskeyAPIError.Body(data))
+            let error = MisskeyAPIError.server(status: http.statusCode, MisskeyAPIError.Body(data))
+            if error.isMissingPermission { onMissingPermission?() }
+            throw error
         }
         return data
     }
@@ -69,10 +74,12 @@ enum MisskeyAPIError: Error, LocalizedError {
     struct Body: Sendable, Equatable {
         let code: String?
         let message: String?
+        let id: String?
 
-        init(code: String?, message: String?) {
+        init(code: String?, message: String?, id: String? = nil) {
             self.code = code
             self.message = message
+            self.id = id
         }
 
         init(_ data: Data) {
@@ -80,12 +87,13 @@ enum MisskeyAPIError: Error, LocalizedError {
                 struct Error: Decodable {
                     let code: String?
                     let message: String?
+                    let id: String?
                 }
 
                 let error: Error
             }
             let error = (try? JSONDecoder().decode(Envelope.self, from: data))?.error
-            self.init(code: error?.code, message: error?.message)
+            self.init(code: error?.code, message: error?.message, id: error?.id)
         }
     }
 
@@ -97,6 +105,13 @@ enum MisskeyAPIError: Error, LocalizedError {
         if case .server(let status, let body) = self {
             return status == 401 || body.code == "AUTHENTICATION_FAILED" || body.code == "CREDENTIAL_REQUIRED"
         }
+        return false
+    }
+
+    /// The token was not granted the permission the endpoint needs. (Other errors share
+    /// its code, PERMISSION_DENIED, but not its id.)
+    var isMissingPermission: Bool {
+        if case .server(_, let body) = self { return body.id == "1370e5b7-d4eb-4566-bb1d-7748ee6a1838" }
         return false
     }
 

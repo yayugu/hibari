@@ -22,6 +22,12 @@ final class SignInViewController: UIHostingController<SignInView> {
     @available(*, unavailable)
     @MainActor required dynamic init?(coder aDecoder: NSCoder) { fatalError() }
 
+    /// Signs in to `server` without asking for it.
+    func signIn(to server: URL) {
+        model.server = server.absoluteString
+        model.signIn()
+    }
+
     func handleCallback(_ url: URL) {
         model.checkApproval(callback: url)
     }

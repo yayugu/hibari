@@ -23,11 +23,14 @@ struct TimelineSession {
     /// The server's limit on a note's text (`/api/meta`); Misskey's default until known.
     var maxNoteTextLength = 3000
 
-    /// An account's timelines on its server. `didReadNotifications`: the server marked the
-    /// account's notifications read (they were fetched to show them).
+    /// An account's timelines on its server. `onMissingPermission`: the server refused a
+    /// request for a permission the token lacks. `didReadNotifications`: the server marked
+    /// the account's notifications read (they were fetched to show them).
     static func live(account: Account, token: String, resources: ServerResources,
+                     onMissingPermission: @escaping @Sendable () -> Void = {},
                      didReadNotifications: @escaping @Sendable () -> Void = {}) -> TimelineSession {
-        let client = MisskeyClient(server: account.server, token: token)
+        var client = MisskeyClient(server: account.server, token: token)
+        client.onMissingPermission = onMissingPermission
         return TimelineSession(
             timelines: TimelineKind.available(for: account, server: resources.info).map { kind in
                 Timeline(id: kind.rawValue, title: kind.title,

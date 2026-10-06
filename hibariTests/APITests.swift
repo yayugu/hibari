@@ -65,9 +65,13 @@ struct APITests {
         #expect(disabled?.errorDescription == "このタイムラインは使えません")
 
         let denied = await error(status: 403, ["error": ["code": "PERMISSION_DENIED",
-                                                         "message": "Your app does not have the necessary permissions to use this endpoint."]])
-        #expect(denied?.isAuthenticationFailure == false)
+                                                         "message": "Your app does not have the necessary permissions to use this endpoint.",
+                                                         "id": "1370e5b7-d4eb-4566-bb1d-7748ee6a1838"]])
+        #expect(denied?.isAuthenticationFailure == false && denied?.isMissingPermission == true)
         #expect(denied?.errorDescription == "この操作の権限がありません。ログインし直してください")
+        let refused = await error(status: 403, ["error": ["code": "PERMISSION_DENIED", "message": "Permission denied.",
+                                                          "id": "fc20d118-5705-4462-b6c5-2b5b43092cf3"]])
+        #expect(refused?.isMissingPermission == false, "an endpoint's own refusal, not the token's permissions")
 
         let limited = await error(status: 429, ["error": ["code": "RATE_LIMIT_EXCEEDED"]])
         #expect(limited?.isTransient == true)
@@ -103,6 +107,20 @@ struct APITests {
         #expect(await !refuses(.json(TestData.me)))
         #expect(await !refuses(.json(["error": ["code": "INTERNAL_ERROR"]], status: 500)))
         #expect(await !refuses(nil), "offline")
+    }
+
+    @Test func aRefusalForAPermissionIsTold() async throws {
+        let urlSession = StubURLProtocol.session { request, _ in
+            request.url?.path == "/api/channels/follow"
+                ? .json(["error": ["code": "PERMISSION_DENIED", "id": "1370e5b7-d4eb-4566-bb1d-7748ee6a1838"]], status: 403)
+                : .json(["error": ["code": "NO_SUCH_NOTE"]], status: 400)
+        }
+        let told = Locked(0)
+        var client = MisskeyClient(server: TestData.server, token: "T", session: urlSession)
+        client.onMissingPermission = { told.withLock { $0 += 1 } }
+        _ = try? await client.data("channels/follow")
+        _ = try? await client.data("notes/show")
+        #expect(told.withLock { $0 } == 1)
     }
 
     @Test func serverResourcesComeFromMetaAndEmojis() async throws {

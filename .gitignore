@@ -10,3 +10,5 @@ build/
 Config/Signing.local.xcconfig
 
 .cloudflare/
+
+AGENTS.md

@@ -27,6 +27,17 @@ struct TextLayoutTests {
         #expect(abs(layout.size.height - metrics.lineHeight * 4) < 1)
     }
 
+    @Test func urlsShowAsOnX() {
+        #expect(RichTextBuilder.displayURL("https://news.livedoor.com/article/detail/30512345/")
+            == "news.livedoor.com/article/detail…")
+        #expect(RichTextBuilder.displayURL("https://www.example.com/") == "example.com")
+        #expect(RichTextBuilder.displayURL("http://example.com/a?b=1") == "example.com/a?b=1")
+        #expect(RichTextBuilder.displayURL("https://example.com/0123456789abcd") == "example.com/0123456789abcd")
+        #expect(RichTextBuilder.displayURL("https://example.com/?q=0123456789abcdef") == "example.com/?q=0123456789a…")
+        #expect(String(attributed("見て https://news.livedoor.com/article/detail/30512345/").string)
+            == "見て news.livedoor.com/article/detail…")
+    }
+
     @Test func maxLinesTruncatesWithEllipsis() {
         let text = (1...20).map { "行\($0)" }.joined(separator: "\n")
         let layout = TextLayout(attributed(text), width: 300, metrics: metrics, maxLines: 3)

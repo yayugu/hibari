@@ -263,6 +263,8 @@ struct RichTextBuilder {
 
     private static let clear = CGColor(gray: 0, alpha: 0)
 
+    /// As X shows a URL: without the scheme and "www.", the host whole and at most 15
+    /// characters after it, then "…".
     static func displayURL(_ url: String) -> String {
         var s = Substring(url)
         if s.hasPrefix("https://") {
@@ -270,8 +272,11 @@ struct RichTextBuilder {
         } else if s.hasPrefix("http://") {
             s = s.dropFirst(7)
         }
+        if s.hasPrefix("www.") { s = s.dropFirst(4) }
         if s.hasSuffix("/") { s = s.dropLast() }
-        return s.count > 40 ? String(s.prefix(39)) + "…" : String(s)
+        guard let pathStart = s.firstIndex(where: { "/?#".contains($0) }) else { return String(s) }
+        let path = s[pathStart...]
+        return path.count > 15 ? s[..<pathStart] + path.prefix(15) + "…" : String(s)
     }
 
     static func color(hex: String) -> CGColor? {

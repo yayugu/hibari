@@ -9,14 +9,19 @@
 `release` runs these steps, each of which can also be run alone:
 
     bump 1.2      sets MARKETING_VERSION to 1.2 and CURRENT_PROJECT_VERSION to one past the
-                  highest build uploaded so far (it doesn't commit)
-    upload        archives the Release build and uploads it
+                  highest build uploaded so far, and commits that
+    upload        archives the Release build of HEAD and uploads it
     prepare 1.2   waits for the uploaded build to finish processing, creates version 1.2 (or
                   renames the version being edited), sets its "What's New" from
                   release-notes/1.2/<locale>.txt and selects the build
 
 The release notes need one file per localization of the app on App Store Connect, e.g.
-release-notes/1.2/ja.txt. `prepare` stops before changing anything if one is missing.
+release-notes/1.2/ja.txt. `prepare` stops before changing anything if one is missing. They
+cover what changed since the last release's tag (git log v1.1..).
+
+`submit` tags the commit the submitted build was made from as v1.2 (it doesn't push). `bump` and
+`upload` refuse to run with uncommitted changes, other than to release-notes/, so that the build
+is that commit.
 
 Archiving and uploading sign in as the Apple ID added in Xcode (Settings → Accounts). Everything
 else uses an App Store Connect API key (a team key, App Manager or above):
@@ -222,6 +227,47 @@ def set_project_versions(marketing, build):
     PBXPROJ.write_text(text)
 
 
+# --- git ---
+
+
+def git(*args):
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.rstrip()
+
+
+def require_clean():
+    dirty = [
+        line[3:]
+        for line in git("status", "--porcelain", "--untracked-files=all").splitlines()
+        if not line[3:].startswith("release-notes/")
+    ]
+    if dirty:
+        fail("commit or stash these first, so that the build is HEAD:\n  " + "\n  ".join(dirty))
+
+
+def tag_release(version_string, build, uploaded_date):
+    tag = f"v{version_string}"
+    commit_file = ROOT / "build" / f"release-{version_string}-{build}" / "commit"
+    if not commit_file.exists():
+        print(f"Not tagged: {commit_file.relative_to(ROOT)} (written by upload) doesn't exist. "
+              f"Tag the commit build {build} was made from: git tag -a {tag} <commit>")
+        return
+    commit = commit_file.read_text().strip()
+    existing = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{tag}^{{commit}}"],
+        cwd=ROOT, capture_output=True, text=True,
+    ).stdout.strip()
+    if existing == commit:
+        print(f"{tag} is already {commit[:7]}")
+        return
+    if existing:
+        print(f"Not tagged: {tag} is {existing[:7]}, but build {build} is {commit[:7]}. "
+              f"To move it: git tag -fa {tag} {commit[:7]}")
+        return
+    git("tag", "-a", tag, commit, "-m",
+        f"{version_string} (build {build}) — App Store submission, uploaded {uploaded_date}")
+    print(f"Tagged {commit[:7]} as {tag}. Push it: git push origin main {tag}")
+
+
 # --- commands ---
 
 
@@ -244,17 +290,23 @@ def cmd_status(args):
 
 
 def cmd_bump(args):
+    require_clean()
     _, current = project_versions()
     uploaded = [int(b["attributes"]["version"]) for b in builds(limit=1)["data"]]
     build = max([current, *uploaded]) + 1
     set_project_versions(args.version, build)
-    print(f"Project: {args.version} ({build})")
+    git("commit", "-q", "-m", f"chore: bump version to {args.version} ({build})",
+        str(PBXPROJ.relative_to(ROOT)))
+    print(f"Project: {args.version} ({build}), committed")
 
 
 def cmd_upload(args):
+    require_clean()
     marketing, build = project_versions()
     out = ROOT / "build" / f"release-{marketing}-{build}"
     out.mkdir(parents=True, exist_ok=True)
+    # For submit, which tags it.
+    (out / "commit").write_text(git("rev-parse", "HEAD") + "\n")
     archive = out / "hibari.xcarchive"
     # Signs and uploads as the Apple ID signed in to Xcode, which has the distribution
     # certificate. With the API key (-authenticationKeyPath) xcodebuild signs with a
@@ -440,6 +492,11 @@ def cmd_submit(args):
     )
     print(f"Submitted {args.version} for review")
 
+    selected = get(f"/v1/appStoreVersions/{version['id']}/build")["data"]
+    if selected:
+        attrs = selected["attributes"]
+        tag_release(args.version, attrs["version"], attrs["uploadedDate"][:10])
+
 
 def cmd_release(args):
     # Fail on missing notes now rather than after a 20-minute build and upload.
@@ -451,8 +508,6 @@ def cmd_release(args):
         cmd_submit(args)
     else:
         print(f"Not submitted: run `scripts/release.py submit {args.version}` to send it for review")
-    print("Commit the version bump: git commit -am "
-          f"'chore: bump version to {args.version} ({project_versions()[1]})'")
 
 
 def main():

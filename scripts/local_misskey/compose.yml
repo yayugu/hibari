@@ -28,6 +28,26 @@ services:
       redis:
         condition: service_healthy
 
+  # Web pages for URL previews (sites/), at the hosts below. On the internal network only, at
+  # the one private address Misskey may fetch from (`allowedPrivateNetworks` in misskey.yml).
+  sites:
+    image: nginx:1-alpine
+    volumes:
+      - ./sites.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./sites:/usr/share/nginx/html:ro
+      - site-images:/srv/img
+    networks:
+      internal:
+        ipv4_address: 172.30.99.10
+        aliases:
+          - news.hibari.test
+          - blog.hibari.test
+          - www.hibari-shop.test
+          - docs.hibari.test
+          - video.hibari.test
+          - adult.hibari.test
+          - club.hibari.test
+
   # A new volume is root's; Misskey runs as the image's `misskey` user.
   files:
     image: misskey/misskey:2026.9.1
@@ -66,9 +86,13 @@ services:
 networks:
   internal:
     internal: true
+    ipam:
+      config:
+        - subnet: 172.30.99.0/24
   external:
 
 volumes:
   db:
   redis:
   files:
+  site-images:

@@ -24,3 +24,7 @@ id: 'aidx'
 # Every client (the Simulator, browsers, the scripts) reaches Misskey from the same address
 # through the proxy; don't make them share the per-IP rate limits.
 enableIpRateLimit: false
+
+# Misskey fetches nothing at private addresses, except the test pages for URL previews (the
+# `sites` service in compose.yml).
+allowedPrivateNetworks: ['172.30.99.10/32']

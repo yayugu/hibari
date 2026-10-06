@@ -71,7 +71,7 @@ scripts/local_misskey.py notify    # @hibari に通知を作る（ノートへ�
   - `@alice` `@bob`（猫） `@carol`、`@dave`（誰にもフォローされていないので @hibari のホームTLには出ない）、`@newsbot`（bot）
   - `@admin`: 管理者（Web のコントロールパネル用）
 - ノートの検索は、Misskey の標準では許されていないので、セットアップで標準のロールに許可している（`canSearchNotes`）。トレンドは最近の投稿のハッシュタグから作られるので、複数のアカウントで `post --as alice --text "#ねこ"` などとすると出る
-- テストデータ（`scripts/local_misskey.py` の `seed()`）: ノート約100件。MFM、カスタム絵文字（通常・横長・アニメーション）、画像（1〜4枚、縦長・パノラマ、代替テキスト）、GIF、動画、センシティブ、CW、投票、リノート、引用、返信のスレッド、メンション、ハッシュタグ、長文、公開範囲（フォロワー・ホーム・ダイレクト）、リアクション。画像と動画は Misskey のコンテナの ffmpeg で生成するので何もダウンロードしない。日時はすべて投入した時刻（API で過去の日時は指定できない）
+- テストデータ（`scripts/local_misskey.py` の `seed()`）: ノート約100件。MFM、カスタム絵文字（通常・横長・アニメーション）、画像（1〜4枚、縦長・パノラマ、代替テキスト）、GIF、動画、センシティブ、CW、投票、リノート、引用、返信のスレッド、メンション、ハッシュタグ、長文、公開範囲（フォロワー・ホーム・ダイレクト）、リアクション、リンク（URL プレビューの各種カードと、カードが出ない場合）。画像と動画は Misskey のコンテナの ffmpeg で生成するので何もダウンロードしない。日時はすべて投入した時刻（API で過去の日時は指定できない）
 
 シミュレータから接続する
 1. アプリのログイン画面（2つめ以降はドロワーの「⋯」→「アカウントを追加」）でサーバーに `http://localhost:3000` を入れる（起動引数 `-HibariSignInServer http://localhost:3000` で初期値にもできる）
@@ -81,7 +81,8 @@ scripts/local_misskey.py notify    # @hibari に通知を作る（ノートへ�
 - `down` / `up` ではデータもトークンも残るので、一度ログインすればそのまま使える。`reset` するとトークンも無効になり、アプリはログインし直しを求める
 
 外部との隔離（ほかのサーバーに影響しない・連合しない）
-- Misskey・PostgreSQL・Redis は外への経路がない Docker ネットワーク（`internal: true`）にだけつながっている。Misskey はほかのホストに接続できず DNS も引けないので、連合の配送・リモートの取得・URL プレビューはすべて失敗する。外側のネットワークにもつながるのはポートを公開する nginx（`proxy`）だけで、Misskey への中継しかしない
+- Misskey・PostgreSQL・Redis は外への経路がない Docker ネットワーク（`internal: true`）にだけつながっている。Misskey はほかのホストに接続できず DNS も引けないので、連合の配送・リモートの取得は失敗する。外側のネットワークにもつながるのはポートを公開する nginx（`proxy`）だけで、Misskey への中継しかしない
+- URL プレビューが取れるのは、同じネットワークの中だけにあるテスト用のページ（`sites`。`scripts/local_misskey/sites/` を `news.hibari.test` などのホスト名で配る nginx。画像はセットアップで作る）だけ。Misskey がプライベートアドレスから取得できるのはこのコンテナのアドレスだけ（`misskey.yml` の `allowedPrivateNetworks`）。ノートに `http://news.hibari.test/articles/desk-rack` などと書けばカードになる
 - ポートは 127.0.0.1 にだけ公開し、サーバーの URL も `localhost` なので、LAN やインターネットからは届かず、ほかのサーバーから名指しもできない
 - サーバー設定の連合も「なし」（`federation: none`）。WebFinger・ActivityPub のエンドポイントは 403 を返す
 - そのため実機からは使えない。実機で使うには URL を Mac の LAN 上の名前にしてポートを LAN に開けることになり、そのぶん隔離が弱まる

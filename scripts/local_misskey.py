@@ -2,8 +2,9 @@
 """A real Misskey (the official Docker image) on http://localhost:3000 for development.
 
 It is cut off from the fediverse: Misskey has no route out of its Docker network (no
-federation, URL previews or remote media), the port listens on 127.0.0.1 only, and the
-server's federation setting is "none". See scripts/local_misskey/compose.yml.
+federation or remote media; URL previews work only for the test pages served inside it,
+scripts/local_misskey/sites), the port listens on 127.0.0.1 only, and the server's
+federation setting is "none". See scripts/local_misskey/compose.yml.
 
     scripts/local_misskey.py up         # starts it; the first time also sets it up and seeds it
     scripts/local_misskey.py down       # stops it (the data stays)
@@ -19,8 +20,9 @@ Accounts (the password of each is "hibari"): @hibari (the one to use in the app;
 
 The seed has about 100 notes: MFM, custom emojis (static, wide and animated), images, a
 GIF, a video, sensitive media, CW, a poll, renotes, quotes, a reply thread, mentions,
-hashtags, a long note, non-public visibilities and reactions. Every note is dated when the
-seed ran: Misskey takes no dates from the API.
+hashtags, a long note, non-public visibilities, reactions and links to the test pages (URL
+previews of each kind). Every note is dated when the seed ran: Misskey takes no dates from
+the API.
 
 Sign in from the app with the server `http://localhost:3000`. On the Misskey page the app
 opens, sign in with the account's password and allow, or instead run `approve` (as @hibari;
@@ -286,6 +288,21 @@ def emoji_spin(frame, frames):
     return shade
 
 
+def site_images(rng):
+    """The images of the test pages (scripts/local_misskey/sites), into the `sites` service."""
+    images = {
+        "desk-rack.jpg": picture(rng, 1200, 630),
+        "long-title.jpg": picture(rng, 1200, 630),
+        "hello.jpg": picture(rng, 400, 400),
+        "keyboard.jpg": picture(rng, 1600, 900),
+        "video.jpg": picture(rng, 1280, 720),
+        "adult.jpg": picture(rng, 1200, 630),
+        "logo.png": png(256, 256, emoji_hibari),
+    }
+    for name, data in images.items():
+        compose("exec", "-T", "sites", "sh", "-c", 'cat > "/srv/img/$1"', "sh", name, capture=True, stdin=data)
+
+
 def custom_emojis():
     """(name, category, aliases, PNG data)"""
     return [
@@ -329,7 +346,7 @@ def seed():
     print("Setting up: accounts, custom emojis, notes (about half a minute)...", flush=True)
     admin = api("admin/accounts/create", username="admin", password=PASSWORD)["token"]
     api("admin/update-meta", admin, name="Hibari Dev", description="Hibari の開発用ローカルサーバー（どこにも連合しない）",
-        federation="none", disableRegistration=True, urlPreviewEnabled=False)
+        federation="none", disableRegistration=True, urlPreviewEnabled=True)
     api("admin/roles/update-default-policies", admin, policies={"canSearchNotes": True})
     api("i/update", admin, name="管理者")
 
@@ -424,6 +441,29 @@ def seed():
     note("carol", "ホーム限定の投稿", visibility="home")
     note("alice", "@hibari ダイレクトのテスト", visibility="specified", visibleUserIds=[ids["hibari"]])
     note("hibari_sub", "サブアカウントから")
+
+    # URL previews of the test pages: cards (which take the link's place at the start or the
+    # end of the text), and where none shows.
+    site_images(rng)
+    note("alice", "19インチマウント搭載卓上ラック\n品番：MR-LCAV2U25（奥行250mm・2U）/ MR-LCAV4U40（奥行400mm・4U）\n\n"
+                  "▽ニュースリリースはこちら\nhttp://news.hibari.test/articles/desk-rack")
+    note("bob", "ブログはじめたらしい（twitter:card が summary：小さいカード） http://blog.hibari.test/posts/hello")
+    note("carol", "キーボード買った（twitter:card なし、横長の画像：大きいカード） http://www.hibari-shop.test/items/42")
+    note("alice", "http://news.hibari.test/articles/long-title\nタイトルの長い記事（先頭のリンクも本文から消える）")
+    note("bob", "動画のページ http://video.hibari.test/watch/1")
+    note("carol", "途中のリンク http://www.hibari-shop.test/items/42 は本文に残る")
+    note("alice", "画像のないページ（小さいカード） http://docs.hibari.test/guide")
+    note("alice", "リンク切れ（カードなし、長いURLは省略） http://news.hibari.test/articles/missing")
+    note("bob", "センシティブなページ（画像は出ない） http://adult.hibari.test/")
+    note("carol", "ロゴだけのページ（twitter:card なし、正方形：小さいカード） http://club.hibari.test/")
+    note("alice", "リンクと画像（カードは出ない） http://news.hibari.test/articles/desk-rack", [(1200, 800)])
+    note("bob", "リンクつきの引用（カードは出ない） http://blog.hibari.test/posts/hello", renoteId=thread["id"])
+    note("carol", "リンクと投票（カードは出ない） http://docs.hibari.test/guide",
+         poll={"choices": ["はい", "いいえ"], "multiple": False, "expiredAfter": 7 * 24 * 3600 * 1000})
+    note("alice", "リンク2つ http://docs.hibari.test/guide と http://blog.hibari.test/posts/hello（カードは後のほう）")
+    note("bob", "?[プレビューしないリンク](http://news.hibari.test/articles/desk-rack) だけ（カードなし）")
+    note("carol", "CW の中のリンク http://www.hibari-shop.test/items/42", cw="買い物の話")
+
     newest = note("alice", "いちばん新しい投稿", [(1200, 800)])
 
     react(emojis["id"], ["bob", "carol", "dave", "hibari_sub", "newsbot", "hibari"],

@@ -17,7 +17,7 @@ enum MiAuth {
         "read:mutes", "write:mutes",
         "read:blocks", "write:blocks",
         "write:report-abuse",
-        "read:channels",
+        "read:channels", "write:channels",
         "read:chat", "write:chat",
     ]
 

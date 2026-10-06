@@ -186,11 +186,11 @@ struct NoteLayoutTests {
 
         let guessed = engine.layout(for: item, context: context)
         #expect(guessed.provisionalEmojis == [url])
-        #expect(engine.emojiSizesAreCurrent(in: guessed))
+        #expect(engine.isCurrent(guessed))
         #expect(engine.layout(for: item, context: context).serial == guessed.serial, "cached while still unknown")
 
         sizes.set(.known(CGSize(width: 300, height: 100)), for: url)
-        #expect(!engine.emojiSizesAreCurrent(in: guessed))
+        #expect(!engine.isCurrent(guessed))
         let exact = engine.layout(for: item, context: context)
         #expect(exact.key == guessed.key && exact.serial != guessed.serial)
         #expect(exact.provisionalEmojis.isEmpty)

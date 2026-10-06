@@ -200,7 +200,7 @@ struct RichTextBuilder {
             style.color = palette[.accent]
             style.link = url
             appendText(Self.displayURL(url), style: style, to: output)
-        case .link(let label, let url):
+        case .link(let label, let url, _):
             style.color = palette[.accent]
             style.link = url
             append(label, style: style, to: output)

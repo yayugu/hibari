@@ -45,6 +45,10 @@ final class FocusedNoteView: UIView {
     private lazy var sensitiveRevealed = services.sensitiveMedia == .show
     private var provisionalEmojis: Set<String> = []
     private var emojiReloadPending = false
+    /// The link the card is for; nil without a card.
+    private var cardLink: String?
+    /// The link whose preview is still loading.
+    private var pendingLink: String?
     private var avatarTask: ImageTask?
     private var loadedAvatar: String?
 
@@ -60,6 +64,7 @@ final class FocusedNoteView: UIView {
     private let files = FileListView()
     private let poll = PollView()
     private let quote = QuoteView()
+    private let linkCard = LinkCardView()
     private let reactions = ReactionChipsView()
     private let timeLabel = UILabel()
     private let bottomSeparator = UIView()
@@ -135,6 +140,12 @@ final class FocusedNoteView: UIView {
             self.onUser?(quoted.user)
         }
         addSubview(quote)
+        linkCard.accessibilityIdentifier = "noteDetail.linkCard"
+        linkCard.addAction(UIAction { [weak self] _ in
+            guard let self, let link = self.cardLink else { return }
+            self.onLink?(link)
+        }, for: .touchUpInside)
+        addSubview(linkCard)
         reactions.onTap = { [weak self] key, frame in self?.onReaction?(key, frame) }
         addSubview(reactions)
 
@@ -168,6 +179,10 @@ final class FocusedNoteView: UIView {
         }
         NotificationCenter.default.addObserver(self, selector: #selector(mediaSizesDidChange),
                                                name: ImagePipeline.mediaSizesDidChange, object: services.imagePipeline)
+        if let linkPreviews = services.engine.linkPreviews as? LinkPreviewStore {
+            NotificationCenter.default.addObserver(self, selector: #selector(linkPreviewDidLoad),
+                                                   name: LinkPreviewStore.didLoad, object: linkPreviews)
+        }
         reloadContent()
     }
 
@@ -259,7 +274,9 @@ final class FocusedNoteView: UIView {
             title.font = .systemFont(ofSize: size(14), weight: .semibold)
             cwButton.configuration?.attributedTitle = title
         }
-        if let body = note.text, !body.isEmpty {
+        configureLinkCard(fontSize: size)
+        let body = note.text.map { text in cardLink.map { LinkPreview.text(text, showingCardFor: $0) } ?? text }
+        if let body, !body.isEmpty {
             bodyTextView.attributedText = collect(text.build(body, emojis: .text(of: note), font: bodyFont,
                                                              color: .primaryText, lineHeight: lineHeight))
         } else {
@@ -312,6 +329,31 @@ final class FocusedNoteView: UIView {
             media.configure(files: files, revealed: sensitiveRevealed, width: contentWidth,
                             imagePipeline: services.imagePipeline, scale: scale)
         }
+    }
+
+    /// Shows the card if the link's preview is in; otherwise fetches it, and the card shows
+    /// when it is in (`linkPreviewDidLoad`).
+    private func configureLinkCard(fontSize: (CGFloat) -> CGFloat) {
+        cardLink = nil
+        pendingLink = nil
+        guard let link = LinkPreview.target(of: note) else { return }
+        let linkPreviews = services.engine.linkPreviews
+        switch linkPreviews.state(for: link) {
+        case .ready(let card):
+            cardLink = link
+            linkCard.configure(card, revealsSensitiveMedia: services.sensitiveMedia == .show,
+                               imagePipeline: services.imagePipeline, scale: scale, fontSize: fontSize)
+        case .none:
+            break
+        case .unknown:
+            pendingLink = link
+            Task { await linkPreviews.prepare([link], timeout: .seconds(30)) }
+        }
+    }
+
+    @objc private func linkPreviewDidLoad() {
+        guard let pendingLink, services.engine.linkPreviews.state(for: pendingLink) != .unknown else { return }
+        reloadContent()
     }
 
     private func configureActions(fontSize: CGFloat) {
@@ -503,6 +545,10 @@ final class FocusedNoteView: UIView {
         quote.isHidden = !showsContent || note.renote == nil
         if !quote.isHidden {
             place(quote, height: quote.layout(width: inner, apply: false))
+        }
+        linkCard.isHidden = !showsContent || cardLink == nil
+        if !linkCard.isHidden {
+            place(linkCard, height: linkCard.layout(width: inner, apply: false))
         }
         reactions.isHidden = note.reactions.isEmpty || note.isLikeOnly
         if !reactions.isHidden {

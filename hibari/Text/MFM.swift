@@ -13,7 +13,8 @@ indirect enum MFMNode: Equatable, Sendable {
     case mention(username: String, host: String?)
     case hashtag(String)
     case url(String)
-    case link(label: [MFMNode], url: String)
+    /// `[label](url)`; `silent` for `?[label](url)`, which gets no preview.
+    case link(label: [MFMNode], url: String, silent: Bool)
     case emoji(String)
     case fn(name: String, args: [String: String], children: [MFMNode])
 }
@@ -493,7 +494,7 @@ private struct MFMScanner {
             failed.insert(key)
             return nil
         }
-        return .link(label: label, url: url)
+        return .link(label: label, url: url, silent: prefixLength > 0)
     }
 
     private mutating func parseLinkURL() -> String? {

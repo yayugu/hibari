@@ -99,7 +99,7 @@ struct TimelineTests {
         entries.append(items, layouts: engine.layouts(for: items, context: context))
         let expected = { (item: TimelineItem) in engine.key(for: item, context: context) }
         func stale(_ expectedKey: (TimelineItem) -> LayoutKey) -> (now: [Int], deferred: [Int]) {
-            entries.staleIndices(onScreen: [1], expectedKey: expectedKey, emojiSizesAreCurrent: engine.emojiSizesAreCurrent(in:))
+            entries.staleIndices(onScreen: [1], expectedKey: expectedKey, isCurrent: engine.isCurrent)
         }
         #expect(stale(expected).now.isEmpty && stale(expected).deferred.isEmpty)
 

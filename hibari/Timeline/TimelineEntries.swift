@@ -277,16 +277,17 @@ struct TimelineEntries: Sendable {
     }
 
     /// The notes whose layout is out of date: its key is not the one `expectedKey` gives
-    /// now, or it guessed the size of an emoji that has loaded since.
+    /// now, or it guessed the size of an emoji or went without a link's preview that has
+    /// loaded since (`isCurrent` false).
     ///
-    /// Split in two: changes that happen by themselves (an emoji size arriving, dates
-    /// gaining their year) must not move a note the user is looking at, so notes in
-    /// `onScreen` wait (`deferred`) until they leave the screen. Changes of content,
-    /// display state or context are laid out right away (`now`).
+    /// Split in two: changes that happen by themselves (an emoji size or a link's preview
+    /// arriving, dates gaining their year) must not move a note the user is looking at, so
+    /// notes in `onScreen` wait (`deferred`) until they leave the screen. Changes of
+    /// content, display state or context are laid out right away (`now`).
     func staleIndices(
         onScreen: Set<Int>,
         expectedKey: (TimelineItem) -> LayoutKey,
-        emojiSizesAreCurrent: (NoteLayout) -> Bool
+        isCurrent: (NoteLayout) -> Bool
     ) -> (now: [Int], deferred: [Int]) {
         var now: [Int] = []
         var deferred: [Int] = []
@@ -296,7 +297,7 @@ struct TimelineEntries: Sendable {
             let isUrgent: Bool
             if layout.key != expected {
                 isUrgent = expected.requiresImmediateRelayout(from: layout.key)
-            } else if !emojiSizesAreCurrent(layout) {
+            } else if !isCurrent(layout) {
                 isUrgent = false
             } else {
                 continue

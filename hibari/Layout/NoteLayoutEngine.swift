@@ -6,14 +6,17 @@ import os
 final class NoteLayoutEngine: Sendable {
     let emojiResolver: EmojiResolver
     let sizes: any MediaSizeProvider
+    let linkPreviews: any LinkPreviewProvider
     /// The account's server, for images it serves itself (achievement badges). nil: none.
     let server: URL?
     private let cache = Locked<[LayoutKey: NoteLayout]>([:])
     private let cacheLimit = 5000
 
-    init(emojiResolver: EmojiResolver, sizes: any MediaSizeProvider, server: URL? = nil) {
+    init(emojiResolver: EmojiResolver, sizes: any MediaSizeProvider,
+         linkPreviews: any LinkPreviewProvider = NoLinkPreviews(), server: URL? = nil) {
         self.emojiResolver = emojiResolver
         self.sizes = sizes
+        self.linkPreviews = linkPreviews
         self.server = server
     }
 
@@ -22,22 +25,25 @@ final class NoteLayoutEngine: Sendable {
                   timeStyles: TimeStyles(for: item, now: now), context: context)
     }
 
-    /// False when the layout guessed the size of a custom emoji that is known by now.
-    /// Only emoji sizes: whether the key still matches is the caller's to check.
-    func emojiSizesAreCurrent(in layout: NoteLayout) -> Bool {
+    /// False when the layout guessed the size of a custom emoji that is known by now, or
+    /// went without the preview of a link that is in by now. Only these: whether the key
+    /// still matches is the caller's to check.
+    func isCurrent(_ layout: NoteLayout) -> Bool {
         layout.provisionalEmojis.allSatisfy { sizes.mediaSize(for: $0) == .unknown }
+            && layout.pendingLinkPreview.map { linkPreviews.state(for: $0) == .unknown } ?? true
     }
 
     func cachedLayout(for item: TimelineItem, context: LayoutContext, now: Date) -> NoteLayout? {
         let key = key(for: item, context: context, now: now)
-        return cache.withLock { $0[key] }.flatMap { emojiSizesAreCurrent(in: $0) ? $0 : nil }
+        return cache.withLock { $0[key] }.flatMap { isCurrent($0) ? $0 : nil }
     }
 
     func layout(for item: TimelineItem, context: LayoutContext, now: Date) -> NoteLayout {
         let key = key(for: item, context: context, now: now)
-        if let hit = cache.withLock({ $0[key] }), emojiSizesAreCurrent(in: hit) { return hit }
+        if let hit = cache.withLock({ $0[key] }), isCurrent(hit) { return hit }
         let signpost = Signposts.layout.beginInterval("note", id: Signposts.layout.makeSignpostID())
-        var builder = NoteLayoutBuilder(item: item, key: key, resolver: emojiResolver, sizes: sizes, server: server)
+        var builder = NoteLayoutBuilder(item: item, key: key, resolver: emojiResolver, sizes: sizes,
+                                        linkPreviews: linkPreviews, server: server)
         let layout = switch item.content {
         case .note(let note): builder.build(note)
         case .notification(let notification): builder.build(notification)
@@ -111,13 +117,19 @@ final class NoteLayoutEngine: Sendable {
         return usage
     }
 
+    /// The links whose cards `items` show, to fetch their previews before laying them out.
+    /// Also those under a CW, for the card to be there when it opens.
+    func linkPreviewURLs(in items: [TimelineItem]) -> Set<String> {
+        Set(items.compactMap { $0.note.flatMap { LinkPreview.target(of: $0.displayedNote) } })
+    }
+
     private func collectEmojis(_ nodes: [MFMNode], _ context: EmojiContext, into urls: inout Set<String>) {
         for node in nodes {
             switch node {
             case .emoji(let name):
                 if let url = emojiResolver.url(forName: name, in: context) { urls.insert(url) }
             case .bold(let children), .italic(let children), .strike(let children), .small(let children),
-                 .center(let children), .quote(let children), .link(let children, _), .fn(_, _, let children):
+                 .center(let children), .quote(let children), .link(let children, _, _), .fn(_, _, let children):
                 collectEmojis(children, context, into: &urls)
             case .text, .inlineCode, .codeBlock, .mention, .hashtag, .url:
                 break
@@ -143,6 +155,7 @@ struct NoteLayoutBuilder {
     let palette: Palette
     let resolver: EmojiResolver
     let sizer: EmojiSizer
+    let linkPreviews: any LinkPreviewProvider
     let server: URL?
     let scale: CGFloat
     let bodyMetrics: LineMetrics
@@ -155,6 +168,8 @@ struct NoteLayoutBuilder {
     var timeSlots: [TimeSlot] = []
     var targets: [TapTarget] = []
     var collectsLinks = true
+    /// The link whose card the note goes without until its preview is in.
+    var pendingLinkPreview: String?
     var accessibilityBeforeTime: [String] = []
     var accessibilityAfterTime: [String] = []
 
@@ -170,7 +185,8 @@ struct NoteLayoutBuilder {
         var prefix = NoteLayoutBuilder.timePrefix
     }
 
-    init(item: TimelineItem, key: LayoutKey, resolver: EmojiResolver, sizes: any MediaSizeProvider, server: URL?) {
+    init(item: TimelineItem, key: LayoutKey, resolver: EmojiResolver, sizes: any MediaSizeProvider,
+         linkPreviews: any LinkPreviewProvider, server: URL?) {
         self.item = item
         self.key = key
         context = key.context
@@ -179,6 +195,7 @@ struct NoteLayoutBuilder {
         palette = context.palette
         self.resolver = resolver
         sizer = EmojiSizer(sizes)
+        self.linkPreviews = linkPreviews
         self.server = server
         scale = context.displayScale
         bodyMetrics = typography.lineMetrics(for: typography.body)
@@ -349,7 +366,21 @@ struct NoteLayoutBuilder {
         }
 
         if showsContent {
-            if let text = note.text, !text.isEmpty {
+            // The card for the note's link, which takes the link's place where the text begins
+            // or ends with it.
+            var card: (link: String, card: LinkCard)?
+            if let link = LinkPreview.target(of: note) {
+                switch linkPreviews.state(for: link) {
+                case .unknown:
+                    pendingLinkPreview = link
+                case .ready(let ready):
+                    card = (link, ready)
+                case .none:
+                    break
+                }
+            }
+            let body = note.text.map { text in card.map { LinkPreview.text(text, showingCardFor: $0.link) } ?? text }
+            if let text = body, !text.isEmpty {
                 let attributed = richText(text, .text(of: note), font: typography.body, role: .primaryText)
                 let layout = TextLayout(attributed, width: contentWidth, metrics: bodyMetrics)
                 let t = top(4)
@@ -393,6 +424,12 @@ struct NoteLayoutBuilder {
                 let t = top(m.blockSpacing)
                 let height = quoteBox(quoted, origin: CGPoint(x: contentX, y: t), width: contentWidth)
                 cursor = t + height
+                placed = true
+            }
+
+            if let card {
+                let t = top(m.blockSpacing)
+                cursor = t + linkCard(card.card, link: card.link, origin: CGPoint(x: contentX, y: t), width: contentWidth)
                 placed = true
             }
         }
@@ -445,6 +482,7 @@ struct NoteLayoutBuilder {
                                              date: note.createdAt,
                                              afterTime: accessibilityAfterTime.joined(separator: "、")),
             provisionalEmojis: sizer.provisional,
+            pendingLinkPreview: pendingLinkPreview,
             targets: targets,
             connectors: connectors,
             showsSeparator: !item.state.thread.contains(.below))

@@ -92,8 +92,12 @@ final class NoteDetailViewController: UIViewController {
                                                name: BookmarkController.didChange, object: services.bookmarks)
         NotificationCenter.default.addObserver(self, selector: #selector(noteDidChange(_:)),
                                                name: PollController.didChange, object: services.polls)
-        NotificationCenter.default.addObserver(self, selector: #selector(mediaSizesDidChange),
+        NotificationCenter.default.addObserver(self, selector: #selector(layoutInputDidLoad),
                                                name: ImagePipeline.mediaSizesDidChange, object: services.imagePipeline)
+        if let linkPreviews = services.engine.linkPreviews as? LinkPreviewStore {
+            NotificationCenter.default.addObserver(self, selector: #selector(layoutInputDidLoad),
+                                                   name: LinkPreviewStore.didLoad, object: linkPreviews)
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(rendererDidRedraw(_:)),
                                                name: NoteRenderer.didRedraw, object: services.renderer)
         NotificationCenter.default.addObserver(self, selector: #selector(didPostNote(_:)),
@@ -363,7 +367,8 @@ final class NoteDetailViewController: UIViewController {
             let emojis = engine.customEmojis(in: items)
             async let text: Void = imagePipeline.prepareSizes(of: emojis.text, timeout: .seconds(3))
             async let reactions: Void = imagePipeline.prepareSizes(of: emojis.reactions, timeout: .milliseconds(800))
-            _ = await (text, reactions)
+            async let links: Void = engine.linkPreviews.prepare(engine.linkPreviewURLs(in: items), timeout: .seconds(2))
+            _ = await (text, reactions, links)
             let layouts = engine.layouts(for: items, context: context, now: now)
             await self.show(ancestors: ancestors, replies: replies, layouts: layouts, generation: generation)
         }
@@ -443,9 +448,10 @@ final class NoteDetailViewController: UIViewController {
         if changed { relayout() }
     }
 
-    @objc private func mediaSizesDidChange() {
+    /// An emoji size or a link's preview that layouts went without is in.
+    @objc private func layoutInputDidLoad() {
         let engine = services.engine
-        if (shown.ancestorLayouts + shown.replyLayouts).contains(where: { !engine.emojiSizesAreCurrent(in: $0) }) {
+        if (shown.ancestorLayouts + shown.replyLayouts).contains(where: { !engine.isCurrent($0) }) {
             relayout()
         }
     }

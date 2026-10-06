@@ -49,6 +49,8 @@ struct TimelineSession {
                          emptyMessage: "まだダイレクトがありません"),
             ],
             engine: NoteLayoutEngine(emojiResolver: resources.emojiResolver(), sizes: ImagePipeline.shared,
+                                     linkPreviews: LinkPreviewStore(server: account.server,
+                                                                    media: ImagePipeline.shared.source),
                                      server: account.server),
             clock: .live,
             account: account,

@@ -29,10 +29,10 @@ struct MFMParserTests {
 
     @Test func links() {
         #expect(MFMParser.parse("[ここ](https://example.com)") == [
-            .link(label: [.text("ここ")], url: "https://example.com"),
+            .link(label: [.text("ここ")], url: "https://example.com", silent: false),
         ])
         #expect(MFMParser.parse("?[silent](https://example.com)") == [
-            .link(label: [.text("silent")], url: "https://example.com"),
+            .link(label: [.text("silent")], url: "https://example.com", silent: true),
         ])
         #expect(MFMParser.parse("[not a link]") == [.text("[not a link]")])
     }
@@ -133,7 +133,7 @@ struct MFMParserTests {
 
     @Test func closedConstructsAfterFailedOnesStillParse() {
         #expect(MFMParser.parse("<i><b>a</b>") == [.text("<i>"), .bold([.text("a")])])
-        #expect(MFMParser.parse("[[a](https://e.com)") == [.text("["), .link(label: [.text("a")], url: "https://e.com")])
+        #expect(MFMParser.parse("[[a](https://e.com)") == [.text("["), .link(label: [.text("a")], url: "https://e.com", silent: false)])
     }
 
     @Test func deepNestingDoesNotRecurseForever() {

@@ -22,6 +22,8 @@ enum ColorRole: UInt8, Hashable, Sendable, CaseIterable {
     case mediaPlaceholder
     case overlayText
     case overlayBackground
+    /// Under a link card's title, on its image.
+    case linkTitleBackground
     case renote
     case reaction
     /// Labels like "フォローされています".
@@ -76,6 +78,7 @@ struct Palette: @unchecked Sendable {
         case .mediaPlaceholder: return RGBA(dark ? 0x202327 : 0xE8ECEE)
         case .overlayText: return RGBA(0xFFFFFF)
         case .overlayBackground: return RGBA(0x000000, alpha: 0.55)
+        case .linkTitleBackground: return RGBA(0x000000, alpha: 0.7)
         case .renote: return RGBA(0x00BA7C)
         case .reaction: return RGBA(0xF91880)
         case .badgeBackground: return RGBA(dark ? 0x202327 : 0xEFF3F4)

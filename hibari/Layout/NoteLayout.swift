@@ -92,6 +92,8 @@ struct NoteLayout: Sendable {
     let accessibility: AccessibilityText
     /// Custom emojis laid out with a guessed (square) size because theirs was not known.
     let provisionalEmojis: Set<String>
+    /// The link whose card is left out because its preview was not known.
+    let pendingLinkPreview: String?
     /// Tappable parts, later ones on top.
     let targets: [TapTarget]
     /// Thread lines between avatars (filled with `ColorRole.border`).
@@ -103,7 +105,8 @@ struct NoteLayout: Sendable {
 
     init(key: LayoutKey, height: CGFloat, blocks: [RasterBlock], images: [ImageSlot], decorations: [Decoration],
          timeSlots: [TimeSlot], accessibility: AccessibilityText, provisionalEmojis: Set<String>,
-         targets: [TapTarget] = [], connectors: [CGRect] = [], showsSeparator: Bool = true) {
+         pendingLinkPreview: String? = nil, targets: [TapTarget] = [], connectors: [CGRect] = [],
+         showsSeparator: Bool = true) {
         self.key = key
         serial = Self.serials.add(1, ordering: .relaxed).newValue
         self.height = height
@@ -113,6 +116,7 @@ struct NoteLayout: Sendable {
         self.timeSlots = timeSlots
         self.accessibility = accessibility
         self.provisionalEmojis = provisionalEmojis
+        self.pendingLinkPreview = pendingLinkPreview
         self.targets = targets
         self.connectors = connectors
         self.showsSeparator = showsSeparator

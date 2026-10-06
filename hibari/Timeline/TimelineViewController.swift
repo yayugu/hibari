@@ -123,6 +123,8 @@ final class TimelineViewController: UIViewController {
     private let lookahead = 10
     private static let textEmojiTimeout: Duration = .seconds(10)
     private static let reactionEmojiTimeout: Duration = .milliseconds(1500)
+    /// For the page and the thumbnail: the server may have to fetch the page first.
+    private static let linkPreviewTimeout: Duration = .seconds(3)
 
     init(timelineID: String, source: any TimelineSource, services: NoteServices) {
         self.timelineID = timelineID
@@ -211,8 +213,12 @@ final class TimelineViewController: UIViewController {
         }
         NotificationCenter.default.addObserver(self, selector: #selector(rendererDidRedraw(_:)),
                                                name: NoteRenderer.didRedraw, object: renderer)
-        NotificationCenter.default.addObserver(self, selector: #selector(mediaSizesDidChange(_:)),
+        NotificationCenter.default.addObserver(self, selector: #selector(layoutInputDidLoad(_:)),
                                                name: ImagePipeline.mediaSizesDidChange, object: imagePipeline)
+        if let linkPreviews = engine.linkPreviews as? LinkPreviewStore {
+            NotificationCenter.default.addObserver(self, selector: #selector(layoutInputDidLoad(_:)),
+                                                   name: LinkPreviewStore.didLoad, object: linkPreviews)
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(noteDidChange(_:)),
                                                name: ReactionController.didChange, object: services.reactions)
         NotificationCenter.default.addObserver(self, selector: #selector(noteDidChange(_:)),
@@ -299,7 +305,7 @@ final class TimelineViewController: UIViewController {
         let stale = entries.staleIndices(
             onScreen: onScreenIndices,
             expectedKey: { engine.key(for: $0, context: context, now: clockTime) },
-            emojiSizesAreCurrent: engine.emojiSizesAreCurrent(in:))
+            isCurrent: engine.isCurrent)
         deferredNoteIDs = Set(stale.deferred.map { entries.items[$0].id })
         guard !stale.now.isEmpty else { return }
         isRelayingOut = true
@@ -594,7 +600,8 @@ final class TimelineViewController: UIViewController {
         clockTimer = timer
     }
 
-    @objc private func mediaSizesDidChange(_ notification: Notification) {
+    /// An emoji size or a link's preview that layouts went without is in.
+    @objc private func layoutInputDidLoad(_ notification: Notification) {
         relayoutStale()
     }
 
@@ -754,12 +761,15 @@ final class TimelineViewController: UIViewController {
         let clockTime = self.clockTime
         let textEmojiTimeout = Self.textEmojiTimeout
         let reactionEmojiTimeout = Self.reactionEmojiTimeout
+        let linkPreviewTimeout = Self.linkPreviewTimeout
         return { items in
             let emojis = engine.customEmojis(in: items)
             async let textReady: Void = imagePipeline.prepareSizes(of: emojis.text, timeout: textEmojiTimeout)
             async let reactionsReady: Void = imagePipeline.prepareSizes(of: emojis.reactions,
                                                                         timeout: reactionEmojiTimeout)
-            _ = await (textReady, reactionsReady)
+            async let linksReady: Void = engine.linkPreviews.prepare(engine.linkPreviewURLs(in: items),
+                                                                     timeout: linkPreviewTimeout)
+            _ = await (textReady, reactionsReady, linksReady)
             return engine.layouts(for: items, context: context, now: clockTime)
         }
     }

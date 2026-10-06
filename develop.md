@@ -85,3 +85,22 @@ scripts/local_misskey.py notify    # @hibari に通知を作る（ノートへ�
 - ポートは 127.0.0.1 にだけ公開し、サーバーの URL も `localhost` なので、LAN やインターネットからは届かず、ほかのサーバーから名指しもできない
 - サーバー設定の連合も「なし」（`federation: none`）。WebFinger・ActivityPub のエンドポイントは 403 を返す
 - そのため実機からは使えない。実機で使うには URL を Mac の LAN 上の名前にしてポートを LAN に開けることになり、そのぶん隔離が弱まる
+
+## リリース
+
+App Store への提出は `scripts/release.py` で行う。archive とアップロードは Xcode に追加した Apple ID（設定 → Accounts）で署名し、それ以外（バージョンの作成・リリースノート・提出）は App Store Connect API のキー（Team キー、App Manager 以上）で行う。xcodebuild に API キーを渡すとクラウド管理の配布証明書で署名しようとするが、このキーにはその権限がない。
+
+- キー: `~/.appstoreconnect/private_keys/AuthKey_<Key ID>.p8`
+- Issuer ID: `~/.appstoreconnect/issuer_id`（1行。環境変数 `ASC_ISSUER_ID` でも可）
+- どちらもリポジトリには置かない
+
+```sh
+scripts/release.py status                 # ストアのバージョンとビルドの状態
+scripts/release.py release 1.2            # バージョンを上げ、archive・アップロードし、処理を待って 1.2 にリリースノートとビルドを設定する
+scripts/release.py submit 1.2             # 審査に提出する（release に --submit を付けても同じ）
+```
+
+- リリースノート（「このバージョンの新機能」）は `release-notes/<バージョン>/<ロケール>.txt`。ストアのローカライズ（いまは `ja` のみ）ごとに1つ必要で、足りなければアップロードの前に止まる
+- リリースノートは利用者向けに書く。技術的な詳細は書かず、何がよくなったかを短い箇条書きにする
+- `release` はバージョンを上げた `project.pbxproj` をコミットしない。終わったら `chore: bump version to 1.2 (3)` の形でコミットする
+- 途中で止まったら、残りの手順だけを実行し直す（`upload` / `prepare 1.2` / `submit 1.2`）。`release` をやり直すとビルド番号がもう一度上がる

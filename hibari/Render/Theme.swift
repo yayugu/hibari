@@ -30,6 +30,8 @@ enum ColorRole: UInt8, Hashable, Sendable, CaseIterable {
     case badgeBackground
     /// The filled (follow) button.
     case filledButton
+    /// A text field's fill.
+    case fieldBackground
 }
 
 struct Palette: @unchecked Sendable {
@@ -83,6 +85,7 @@ struct Palette: @unchecked Sendable {
         case .reaction: return RGBA(0xF91880)
         case .badgeBackground: return RGBA(dark ? 0x202327 : 0xEFF3F4)
         case .filledButton: return RGBA(dark ? 0xEFF3F4 : 0x0F1419)
+        case .fieldBackground: return RGBA(dark ? 0x202327 : 0xEFF3F4)
         }
     }
 }

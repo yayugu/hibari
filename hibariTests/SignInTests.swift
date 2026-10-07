@@ -23,6 +23,76 @@ struct SignInTests {
         #expect(ServerAddress.url(from: input) == nil)
     }
 
+    // MARK: Server suggestions
+
+    /// In order of use, as KnownServers.json is.
+    private static let known = [
+        KnownServer(domain: "misskey.io", name: "Misskey.io"),
+        KnownServer(domain: "nijimiss.moe", name: "にじみす.moe"),
+        KnownServer(domain: "misskey.design", name: "Misskey.design"),
+        KnownServer(domain: "voskey.icalo.net", name: "ぼすきー"),
+        KnownServer(domain: "next.misskey.io", name: "Misskey.io Next"),
+    ]
+
+    private func suggested(_ input: String) -> [String] {
+        KnownServers.suggestions(for: input, in: Self.known).matches.map(\.server.domain)
+    }
+
+    @Test func theBundledServersLoad() {
+        let domains = KnownServers.all.map(\.domain)
+        #expect(domains.first == "misskey.io")
+        #expect(Set(domains).count == domains.count)
+    }
+
+    @Test(arguments: [
+        ("mis", "mis"),
+        ("  MIS ", "mis"),
+        ("@alice@misskey.io", "misskey.io"),
+        ("alice@mi", "mi"),
+        ("https://misskey.io/notes/abc", "misskey.io"),
+        ("http://localhost:3000", "localhost:3000"),
+    ])
+    func suggestionsReadTheServerOutOfTheInput(input: String, query: String) {
+        #expect(KnownServers.query(from: input) == query)
+    }
+
+    @Test func anEmptyFieldSuggestsEveryServerMostUsedFirst() {
+        #expect(suggested("") == Self.known.map(\.domain))
+        #expect(suggested("@alice@") == Self.known.map(\.domain))
+    }
+
+    @Test func domainsMatchBeforeNames() {
+        // Any dot-separated part of the domain may start with what is typed.
+        #expect(suggested("mis") == ["misskey.io", "misskey.design", "next.misskey.io"])
+        #expect(suggested("design") == ["misskey.design"])
+        #expect(suggested("icalo") == ["voskey.icalo.net"])
+        // Then names, anywhere in them.
+        #expect(suggested("みす") == ["nijimiss.moe"])
+        #expect(suggested("ぼす") == ["voskey.icalo.net"])
+        #expect(suggested("MISSKEY.IO") == ["misskey.io", "next.misskey.io"])
+        #expect(suggested("example.com").isEmpty)
+    }
+
+    @Test func theServerNamedExactlyLeads() {
+        let suggestions = KnownServers.suggestions(for: "@alice@misskey.io", in: Self.known)
+        #expect(suggestions.exact?.domain == "misskey.io")
+        #expect(suggestions.matches.map(\.server.domain) == ["misskey.io", "next.misskey.io"])
+        #expect(KnownServers.suggestions(for: "misskey.i", in: Self.known).exact == nil)
+    }
+
+    @Test func matchesMarkWhatWasTyped() throws {
+        let design = try #require(KnownServers.suggestions(for: "des", in: Self.known).matches.first)
+        #expect(design.domainRange.map { String(design.server.domain[$0]) } == "des")
+        let niji = try #require(KnownServers.suggestions(for: "じみ", in: Self.known).matches.first)
+        #expect(niji.nameRange.map { String(niji.server.name[$0]) } == "じみ")
+    }
+
+    @Test func choosingASuggestionKeepsWhatCameBeforeTheServer() {
+        #expect(KnownServers.prefix(of: "mis") == "")
+        #expect(KnownServers.prefix(of: " @alice@mis") == "@alice@")
+        #expect(KnownServers.prefix(of: "https://mis") == "https://")
+    }
+
     @Test func authorizationURLCarriesTheSessionAppAndCallback() throws {
         let url = MiAuth.authorizationURL(server: TestData.server, session: "S-1")
         let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))

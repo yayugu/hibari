@@ -225,6 +225,32 @@ struct SignInView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            // Lifts the field to the top so the suggestions show above the keyboard: on focus,
+            // and again once the keyboard has taken its space (only then can the screen
+            // scroll that far).
+            let liftField = {
+                guard serverFocused else { return }
+                withAnimation(.snappy) { proxy.scrollTo(Self.serverLabelID, anchor: .top) }
+            }
+            content
+                .onChange(of: serverFocused) { liftField() }
+                .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { _ in liftField() }
+        }
+    }
+
+    private static let serverLabelID = "signIn.serverLabel"
+
+    @ScaledMetric(relativeTo: .subheadline) private var suggestionRowHeight = ServerSuggestionList.baseRowHeight
+
+    /// While typing, makes up for the rows the suggestions lose, so that the screen keeps
+    /// its height and the field stays where it is instead of following the list.
+    private var typingSpace: CGFloat {
+        guard serverFocused, !isWaiting else { return 0 }
+        return (ServerSuggestionList.maxRows - ServerSuggestionList.rows(for: suggestions)) * suggestionRowHeight
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Image("BirdMark")
@@ -246,8 +272,17 @@ struct SignInView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color(uiColor: .hibari(.secondaryText)))
                     .padding(.top, 40)
+                    .id(Self.serverLabelID)
                 serverField
-                Text("アカウントのあるサーバーのドメインを入力")
+                if !isWaiting {
+                    ServerSuggestionList(input: model.server, suggestions: suggestions) { server in
+                        model.server = KnownServers.prefix(of: model.server) + server.domain
+                        serverFocused = false
+                    }
+                    .disabled(model.phase != .idle)
+                    .padding(.top, 8)
+                }
+                serverHint
                     .font(.footnote)
                     .foregroundStyle(Color(uiColor: .hibari(.secondaryText)))
                     .fixedSize(horizontal: false, vertical: true)
@@ -268,7 +303,7 @@ struct SignInView: View {
                 }
             }
             .padding(.horizontal, 32)
-            .padding(.bottom, 32)
+            .padding(.bottom, 32 + typingSpace)
             .animation(.snappy, value: model.phase)
         }
         .scrollDismissesKeyboard(.interactively)
@@ -286,8 +321,22 @@ struct SignInView: View {
         }
     }
 
+    private var suggestions: KnownServers.Suggestions {
+        KnownServers.suggestions(for: model.server)
+    }
+
+    private var serverHint: Text {
+        if let server = suggestions.exact {
+            var name = AttributedString(server.name)
+            name.foregroundColor = Color(uiColor: .hibari(.primaryText))
+            name.inlinePresentationIntent = .stronglyEmphasized
+            return Text(name + AttributedString("にログインします"))
+        }
+        return Text("アカウントのあるサーバーを選ぶか、ドメインを入力")
+    }
+
     private var serverField: some View {
-        TextField("example.com", text: $model.server)
+        TextField("サーバー名 or ドメイン", text: $model.server)
             .textContentType(.URL)
             .keyboardType(.URL)
             .textInputAutocapitalization(.never)
@@ -298,13 +347,25 @@ struct SignInView: View {
             .disabled(model.phase != .idle)
             .font(.title3)
             .foregroundStyle(Color(uiColor: model.phase == .idle ? .hibari(.primaryText) : .hibari(.secondaryText)))
-            .padding(.horizontal, 14)
+            .padding(.leading, 40)
+            .padding(.trailing, 14)
             .frame(height: 52)
-            .background {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(serverFocused ? Color(uiColor: .hibari(.accent)) : Color(uiColor: .hibari(.border)),
-                            lineWidth: serverFocused ? 2 : 1)
+            .background(alignment: .leading) {
+                // A filled box, so that it reads as a field before it has focus.
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(uiColor: serverFocused ? .hibari(.background) : .hibari(.fieldBackground)))
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color(uiColor: .hibari(.accent)), lineWidth: 2)
+                        .opacity(serverFocused ? 1 : 0)
+                    Image(systemName: "magnifyingglass")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(Color(uiColor: .hibari(.secondaryText)))
+                        .padding(.leading, 14)
+                        .accessibilityHidden(true)
+                }
             }
+            .animation(.easeOut(duration: 0.15), value: serverFocused)
             .padding(.top, 8)
             .accessibilityIdentifier("signIn.server")
     }

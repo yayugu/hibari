@@ -2,6 +2,12 @@
   <img src="docs/icon.png" alt="Hibari app icon" width="160">
   <h1>Hibari for Misskey</h1>
   <p>HibariはiPhoneに特化して開発されたMisskeyクライアントです</p>
+  <p>
+    <a href="https://apps.apple.com/jp/app/hibari-for-misskey/id6818066575">
+      <img src="docs/app-store-badge-ja.svg" alt="App Storeからダウンロード" height="56">
+    </a>
+  </p>
+  <p><b><a href="https://apps.apple.com/jp/app/hibari-for-misskey/id6818066575">App Storeで入手（無料）</a></b></p>
 </div>
 
 <br>

@@ -689,12 +689,17 @@ final class TimelineViewController: UIViewController {
     /// At the top new entries show; otherwise, or with `keepingPosition`, they go above
     /// the screen and "新しいノート" shows; a replaced list then stays where it is too.
     /// `startingOver` also resets history timelines. Asked for while one is under way, it
-    /// runs after it. `completion` runs when it is done (or failed).
+    /// runs after it; without `keepingPosition` (pulled, or home tapped, for the newest),
+    /// the one under way does not keep the position either. `completion` runs when it is
+    /// done (or failed).
     func refresh(startingOver: Bool = false, keepingPosition: Bool = false, completion: (() -> Void)? = nil) {
         guard !isRefreshing, !isRestoring else {
-            var next = nextRefresh ?? RefreshRequest()
+            var next = nextRefresh ?? RefreshRequest(keepingPosition: true)
             next.startingOver = next.startingOver || startingOver
-            next.keepingPosition = next.keepingPosition || keepingPosition
+            if !keepingPosition {
+                next.keepingPosition = false
+                refreshKeepsPosition = false
+            }
             if let completion { next.waiters.append(completion) }
             nextRefresh = next
             return
@@ -1105,7 +1110,8 @@ final class TimelineViewController: UIViewController {
         services.learn(from: items.compactMap(\.note))
         presentEntries()
         didChangeEntries()
-        refresh(keepingPosition: true)
+        // Where it was left, unless a refresh asked for meanwhile wants the newest.
+        refresh(keepingPosition: nextRefresh?.keepingPosition ?? true)
         loadMoreIfNeeded()
     }
 

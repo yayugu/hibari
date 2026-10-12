@@ -262,6 +262,21 @@ struct TimelineRefreshTests {
         #expect(timeline.gapCount == 0)
     }
 
+    @Test func aRefreshForTheNewestShowsTheNotesOfOneKeepingThePositionAtTheTop() async throws {
+        let server = Server()
+        let screen = try await screen(.timeline(.home), server: server)
+        let timeline = screen.timeline
+        #expect(timeline.isAtTop)
+        server.update(["n008", "n007", "n006", "n005"])
+        await withCheckedContinuation { continuation in
+            // Restored at launch, the list catches up where it was; home is tapped meanwhile.
+            timeline.refresh(keepingPosition: true)
+            timeline.refresh { continuation.resume() }
+        }
+        expectIDs(["n008", "n007", "n006", "n005", "n004", "n003"], in: timeline)
+        #expect(timeline.isAtTop)
+    }
+
     @Test func aRefreshBeyondTheFetchedHistoryLeavesAGap() async throws {
         let original = ids(AppSettings.timelinePageSize * 4)
         let server = Server(original)

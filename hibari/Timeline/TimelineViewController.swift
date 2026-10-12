@@ -40,6 +40,11 @@ final class TimelineViewController: UIViewController {
     var indicatorInsets: UIEdgeInsets? {
         didSet { applyInsets() }
     }
+    /// How far the bars over the top of the list have moved up out of the way (the header
+    /// hiding as the list scrolls): "新しいノート" moves up with them.
+    var barsOffset: CGFloat = 0 {
+        didSet { if isViewLoaded { layoutNewNotesButton() } }
+    }
     var minimumContentHeight: CGFloat {
         get { listLayout.minimumContentHeight }
         set { listLayout.minimumContentHeight = newValue }
@@ -280,7 +285,7 @@ final class TimelineViewController: UIViewController {
     private func layoutNewNotesButton() {
         let size = newNotesButton.sizeThatFits(view.bounds.size)
         newNotesButton.bounds = CGRect(origin: .zero, size: size)
-        newNotesButton.center = CGPoint(x: view.bounds.midX, y: contentInsets.top + 12 + size.height / 2)
+        newNotesButton.center = CGPoint(x: view.bounds.midX, y: contentInsets.top - barsOffset + 12 + size.height / 2)
     }
 
     private func updateContextIfNeeded() {
@@ -997,6 +1002,9 @@ final class TimelineViewController: UIViewController {
 
     private var showsNewNotes = false
     private var newNotesAuthors: [User] = []
+    private var newNotesExpiry: Task<Void, Never>?
+    /// "新しいノート" left alone goes away after this; more new notes start it over.
+    private static let newNotesLifetime: Duration = .seconds(10)
 
     /// The account's own renotes are not news to it: alone, they do not show the button.
     private func showNewNotesButton(for newItems: ArraySlice<TimelineItem>) {
@@ -1016,6 +1024,12 @@ final class TimelineViewController: UIViewController {
 
     private func revealNewNotesButton(showing users: [User]) {
         newNotesButton.users = users
+        newNotesExpiry?.cancel()
+        newNotesExpiry = Task { [weak self] in
+            try? await Task.sleep(for: Self.newNotesLifetime)
+            guard !Task.isCancelled else { return }
+            self?.hideNewNotesButton()
+        }
         guard !showsNewNotes else {
             UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0,
                            options: [.beginFromCurrentState, .allowUserInteraction]) {
@@ -1038,6 +1052,8 @@ final class TimelineViewController: UIViewController {
     private func hideNewNotesButton() {
         newNotesAuthors = []
         newNotesButton.cancelLoading()
+        newNotesExpiry?.cancel()
+        newNotesExpiry = nil
         guard showsNewNotes else { return }
         showsNewNotes = false
         UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {

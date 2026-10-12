@@ -134,6 +134,9 @@ final class TimelinePagerViewController: UIViewController {
         let headerOffset = -HeaderView.height * progress
         header.transform = CGAffineTransform(translationX: 0, y: headerOffset)
         header.contentView.alpha = 1 - progress
+        for timeline in timelines {
+            timeline.barsOffset = -headerOffset
+        }
         composeButton.transform = CGAffineTransform(translationX: 0, y: BottomBarView.barHeight * progress)
         onBarsChange?(progress)
     }

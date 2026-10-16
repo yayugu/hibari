@@ -1,5 +1,22 @@
 import UIKit
 
+/// The side rail has the back button (in iPhone Duo's column of bars, where the system puts
+/// it, at the top): the screens leave theirs out.
+struct BackButtonInRailTrait: UITraitDefinition {
+    static let defaultValue = false
+}
+
+extension UITraitCollection {
+    var hasBackButtonInRail: Bool { self[BackButtonInRailTrait.self] }
+}
+
+extension UIMutableTraits {
+    var hasBackButtonInRail: Bool {
+        get { self[BackButtonInRailTrait.self] }
+        set { self[BackButtonInRailTrait.self] = newValue }
+    }
+}
+
 /// The tab bar and the side drawer in one column along a side of the window, like X on
 /// iPad: the tabs, bookmarks, the account (its profile), a menu with the rest, and the
 /// compose button at the bottom. Where the window is wide (iPad, iPhone Duo open), and
@@ -19,12 +36,21 @@ final class NavigationRailView: UIView {
     }
     var onShowBookmarks: (() -> Void)?
     var onShowSettings: (() -> Void)?
+    /// The back button was tapped.
+    var onBack: (() -> Void)?
     let composeButton = ComposeButton()
 
     /// The window's edge it's at: the hairline goes on the other side, against the content.
     var edge: UIRectEdge = .left {
         didSet { setNeedsLayout() }
     }
+    /// In the column the system keeps for its bars (iPhone Duo): lined up in its lane,
+    /// below the status bar and in line with it, and no mark.
+    var isInBarColumn = false {
+        didSet { setNeedsLayout() }
+    }
+    /// The back button at the top (where iPhone Duo puts it in its bars).
+    private(set) var showsBack = false
 
     private enum Item: CaseIterable {
         case home, search, notifications, bookmarks, profile, more
@@ -74,6 +100,7 @@ final class NavigationRailView: UIView {
 
     private let hairline = UIView()
     private let logo = UIImageView()
+    private let backButton = ChromeButton.plain("arrow.left", label: "戻る", identifier: "rail.back")
     private var buttons: [Item: UIButton] = [:]
     private let avatarButton = RailAvatarButton()
     private let homeBadge = TabBadge()
@@ -87,6 +114,10 @@ final class NavigationRailView: UIView {
     private static let minimumItemHeight: CGFloat = 48
     private static let maximumItemHeight: CGFloat = 64
     private static let logoSize: CGFloat = 30
+    /// The width of the system's bar items, for its lane.
+    private static let laneExtent: CGFloat = 44
+    /// Between the back button and the tabs.
+    private static let backSpacing: CGFloat = 8
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -101,6 +132,12 @@ final class NavigationRailView: UIView {
         logo.isAccessibilityElement = true
         logo.accessibilityLabel = "Hibari"
         addSubview(logo)
+        backButton.isPointerInteractionEnabled = true
+        backButton.isHidden = true
+        backButton.alpha = 0
+        backButton.accessibilityElementsHidden = true
+        backButton.addAction(UIAction { [weak self] _ in self?.onBack?() }, for: .touchUpInside)
+        addSubview(backButton)
 
         for item in Item.allCases {
             let button: UIButton = item == .profile ? avatarButton : UIButton(type: .system)
@@ -150,6 +187,17 @@ final class NavigationRailView: UIView {
         let button = tab == .home ? buttons[.home] : buttons[.notifications]
         button?.accessibilityValue = badge.show(value)
         setNeedsLayout()
+    }
+
+    /// Called inside the push's or pop's animation, if any.
+    func setShowsBack(_ shows: Bool) {
+        guard shows != showsBack else { return }
+        showsBack = shows
+        backButton.isHidden = false
+        backButton.alpha = shows ? 1 : 0
+        backButton.accessibilityElementsHidden = !shows
+        setNeedsLayout()
+        layoutIfNeeded()
     }
 
     func setAccount(_ account: Account) {
@@ -207,12 +255,16 @@ final class NavigationRailView: UIView {
         let scale = traitCollection.displayScale
         hairline.frame = CGRect(x: edge == .left ? w - 1 / scale : 0, y: 0, width: 1 / scale, height: bounds.height)
 
-        // Below the window's controls on iPad (they sit over the top leading corner).
-        let safe = edgeInsets(for: .safeArea(cornerAdaptation: .vertical))
-        let reserved = reservedFrames()
-        let spans = reserved.map { $0.minY...$0.maxY }.sorted { $0.lowerBound < $1.lowerBound }
-        // In line with the camera, as the status bar is (iPhone Duo).
-        let midX = reserved.filter { $0.width < w }.min { $0.width < $1.width }?.midX ?? w / 2
+        // In the system's column, the lane it puts its own bar in: below the status bar, in
+        // line with it and the camera. Elsewhere the safe area, below the window's controls
+        // on iPad (they sit over the top leading corner).
+        var lane = edgeInsets(for: .safeArea(cornerAdaptation: .vertical))
+        var midX = w / 2
+        if #available(iOS 27.1, *), isInBarColumn {
+            lane = edgeInsets(for: .bar(onEdge: edge, extent: Self.laneExtent))
+            midX = (lane.left + (w - lane.left - lane.right) / 2).rounded()
+        }
+        let spans = reservedFrames().map { $0.minY...$0.maxY }.sorted { $0.lowerBound < $1.lowerBound }
         func clearing(_ y: CGFloat, height: CGFloat, upward: Bool = false) -> CGFloat {
             var y = y
             while let span = spans.first(where: { $0.lowerBound < y + height && $0.upperBound > y }) {
@@ -222,26 +274,27 @@ final class NavigationRailView: UIView {
         }
 
         let size = ComposeButton.size
-        let composeY = clearing(bounds.height - safe.bottom - 16 - size, height: size, upward: true)
+        let composeY = clearing(bounds.height - lane.bottom - 16 - size, height: size, upward: true)
         composeButton.frame = CGRect(x: (midX - size / 2).rounded(), y: composeY, width: size, height: size)
 
-        let start = safe.top + 4
+        let start = lane.top + 4
         let top = clearing(start, height: Self.minimumItemHeight)
         let end = composeY - 12
-        let room = end - top - spans.reduce(0) { sum, span in
+        let backRoom = showsBack ? Self.backSpacing : 0
+        let room = end - top - backRoom - spans.reduce(0) { sum, span in
             sum + max(0, min(span.upperBound, end) - max(span.lowerBound, top))
         }
         var shown = Item.allCases
-        // The mark only where nothing of the system's sits above the items (not under the
-        // status bar of iPhone Duo).
-        var showsLogo = top == start
-        func fits() -> Bool { CGFloat(shown.count + (showsLogo ? 1 : 0)) * Self.minimumItemHeight <= room }
+        // The mark only where nothing of the system's sits above the items.
+        var showsLogo = !isInBarColumn && !showsBack && top == start
+        func slots() -> Int { shown.count + (showsLogo ? 1 : 0) + (showsBack ? 1 : 0) }
+        func fits() -> Bool { CGFloat(slots()) * Self.minimumItemHeight <= room }
         if !fits() { showsLogo = false }
         for item in Item.overflowOrder where !fits() {
             shown.removeAll { $0 == item }
         }
-        let slots = CGFloat(shown.count + (showsLogo ? 1 : 0))
-        let height = max(Self.minimumItemHeight, min(Self.maximumItemHeight, (room / max(1, slots)).rounded(.down)))
+        let height = max(Self.minimumItemHeight,
+                         min(Self.maximumItemHeight, (room / CGFloat(max(1, slots()))).rounded(.down)))
 
         var y = top
         logo.isHidden = !showsLogo
@@ -250,6 +303,9 @@ final class NavigationRailView: UIView {
                                 width: Self.logoSize, height: Self.logoSize)
             y += height
         }
+        // Where it goes even while hidden, so it fades in and out in place.
+        backButton.frame = CGRect(x: (midX - w / 2).rounded(), y: y, width: w, height: height)
+        if showsBack { y += height + Self.backSpacing }
         for item in Item.allCases {
             guard let button = buttons[item] else { continue }
             y = clearing(y, height: height)
@@ -268,12 +324,6 @@ final class NavigationRailView: UIView {
             self.overflow = overflow
             updateMenu()
         }
-    }
-
-    /// The status bar or the camera is over the column (iPhone Duo's).
-    var isUnderSystemControls: Bool {
-        guard #available(iOS 27.1, *) else { return false }
-        return reservedRegions(kind: .occlusion).contains { $0.isActive }
     }
 
     /// The parts of the column the system keeps for itself: the status bar and the camera

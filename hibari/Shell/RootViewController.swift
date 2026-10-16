@@ -9,10 +9,15 @@ final class RootViewController: UIViewController {
     }
 
     /// Where the tabs are: the bar along the bottom (iPhone), or the side rail at the
-    /// window's left or right edge.
+    /// window's left or right edge. `inBarColumn`: in the column the system keeps for its
+    /// bars at the side (iPhone Duo), which also has the back button.
     private enum Chrome: Equatable {
         case bottomBar
-        case rail(UIRectEdge)
+        case rail(UIRectEdge, inBarColumn: Bool)
+
+        var hasBackButtonInRail: Bool {
+            if case .rail(_, inBarColumn: true) = self { true } else { false }
+        }
     }
 
     let session: TimelineSession
@@ -46,20 +51,20 @@ final class RootViewController: UIViewController {
     }
 
     private let unread: UnreadNotifications?
-    private let homeStack: UINavigationController
-    private var searchStack: UINavigationController?
+    private let homeStack: ScreenStackController
+    private var searchStack: ScreenStackController?
     private var search: SearchViewController?
-    private var notificationsStack: UINavigationController?
+    private var notificationsStack: ScreenStackController?
     private var notifications: TimelinePagerViewController?
-    private var profileStack: UINavigationController?
+    private var profileStack: ScreenStackController?
     private var profile: ProfileViewController?
     private(set) var selectedTab = Tab.home
     private let bottomBar = BottomBarView()
     private let rail = NavigationRailView()
     private var chrome = Chrome.bottomBar
-    /// The status bar is on the side rail (iPhone Duo puts it in the column of the bars),
-    /// not over the screen's top.
-    private var railHoldsStatusBar = false
+    /// Under the status bar beside the side rail: it goes over both, so it reads against
+    /// the background (as on X for iPad) rather than what the screen shows there.
+    private let statusBarBackdrop = UIView()
     /// Where toasts go: the tabs' content, above the tab bar or beside the side rail.
     private let toastArea = UIView()
     private var drawerProgress: CGFloat = 0
@@ -82,7 +87,11 @@ final class RootViewController: UIViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    private var selectedStack: UINavigationController {
+    private var stacks: [ScreenStackController] {
+        [homeStack, searchStack, notificationsStack, profileStack].compactMap { $0 }
+    }
+
+    private var selectedStack: ScreenStackController {
         switch selectedTab {
         case .search: searchStack ?? homeStack
         case .notifications: notificationsStack ?? homeStack
@@ -102,7 +111,7 @@ final class RootViewController: UIViewController {
     private var selectedBarsProgress: CGFloat { selectedPager?.barsProgress ?? 0 }
 
     override var childForStatusBarStyle: UIViewController? {
-        railHoldsStatusBar ? nil : selectedStack.topViewController
+        chrome == .bottomBar ? selectedStack.topViewController : nil
     }
 
     var timelines: [TimelineViewController] { home.timelines }
@@ -121,6 +130,10 @@ final class RootViewController: UIViewController {
         view.backgroundColor = .hibari(.background)
 
         install(homeStack)
+        statusBarBackdrop.backgroundColor = .hibari(.background)
+        statusBarBackdrop.isUserInteractionEnabled = false
+        statusBarBackdrop.isHidden = true
+        view.addSubview(statusBarBackdrop)
         view.addSubview(bottomBar)
         rail.isHidden = true
         view.addSubview(rail)
@@ -135,6 +148,7 @@ final class RootViewController: UIViewController {
         rail.onSelect = { [weak self] tab in self?.tabTapped(tab) }
         rail.onShowBookmarks = { [weak self] in self?.showBookmarks() }
         rail.onShowSettings = { [weak self] in self?.showSettings() }
+        rail.onBack = { [weak self] in self?.selectedStack.popViewController(animated: true) }
         rail.composeButton.addAction(UIAction { [weak self] _ in
             guard let self else { return }
             self.services.compose(from: self)
@@ -164,7 +178,12 @@ final class RootViewController: UIViewController {
         }
     }
 
-    private func install(_ stack: UINavigationController) {
+    private func install(_ stack: ScreenStackController) {
+        stack.onScreensChange = { [weak self, weak stack] in
+            guard let self, stack === self.selectedStack else { return }
+            self.updateRailBack()
+        }
+        stack.traitOverrides.hasBackButtonInRail = chrome.hasBackButtonInRail
         addChild(stack)
         view.insertSubview(stack.view, at: 0)
         stack.didMove(toParent: self)
@@ -192,26 +211,23 @@ final class RootViewController: UIViewController {
             bottomBar.transform = .identity
             bottomBar.frame = CGRect(x: 0, y: bounds.height - safe.bottom - BottomBarView.barHeight,
                                      width: bounds.width, height: BottomBarView.barHeight + safe.bottom)
-        case .rail(let edge):
+        case .rail(let edge, let inBarColumn):
             // In the system's column where it has one (iPhone Duo: the status bar's, which
             // is the safe area's inset there), and the content beside it.
             bottomInset = 0
             let width = max(NavigationRailView.minimumWidth, edge == .left ? safe.left : safe.right)
             (rail.frame, content) = bounds.divided(atDistance: width, from: edge == .left ? .minXEdge : .maxXEdge)
             rail.edge = edge
+            rail.isInBarColumn = inBarColumn
         }
-        let railHoldsStatusBar = chrome != .bottomBar && rail.isUnderSystemControls
-        if railHoldsStatusBar != self.railHoldsStatusBar {
-            self.railHoldsStatusBar = railHoldsStatusBar
-            setNeedsStatusBarAppearanceUpdate()
-        }
-        for stack in [homeStack, searchStack, notificationsStack, profileStack].compactMap({ $0 }) {
+        statusBarBackdrop.frame = CGRect(x: content.minX, y: 0, width: content.width, height: safe.top)
+        for stack in stacks {
             stack.view.frame = content
             stack.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
         }
         var contentSafe = safe
         contentSafe.bottom += bottomInset
-        if case .rail(let edge) = chrome {
+        if case .rail(let edge, _) = chrome {
             if edge == .left { contentSafe.left = 0 } else { contentSafe.right = 0 }
         }
         toastArea.frame = content.inset(by: contentSafe)
@@ -228,12 +244,12 @@ final class RootViewController: UIViewController {
         let trailing: UIRectEdge = leading == .left ? .right : .left
         if #available(iOS 27.1, *) {
             switch traits.verticalBarEdge {
-            case .leading: return .rail(leading)
-            case .trailing: return .rail(trailing)
+            case .leading: return .rail(leading, inBarColumn: true)
+            case .trailing: return .rail(trailing, inBarColumn: true)
             default: break
             }
         }
-        return traits.horizontalSizeClass == .regular ? .rail(leading) : .bottomBar
+        return traits.horizontalSizeClass == .regular ? .rail(leading, inBarColumn: false) : .bottomBar
     }
 
     private func apply(_ chrome: Chrome) {
@@ -241,11 +257,22 @@ final class RootViewController: UIViewController {
         let usesRail = chrome != .bottomBar
         bottomBar.isHidden = usesRail
         rail.isHidden = !usesRail
+        statusBarBackdrop.isHidden = !usesRail
         home.setUsesRail(usesRail)
         search?.setUsesRail(usesRail)
         notifications?.setUsesRail(usesRail)
+        for stack in stacks {
+            stack.traitOverrides.hasBackButtonInRail = chrome.hasBackButtonInRail
+        }
+        updateRailBack()
+        setNeedsStatusBarAppearanceUpdate()
         // The rail has what the drawer had.
         if usesRail { (parent as? SideDrawerController)?.close(animated: false) }
+    }
+
+    /// The rail's back button, for the shown tab's screens (iPhone Duo).
+    private func updateRailBack() {
+        rail.setShowsBack(chrome.hasBackButtonInRail && selectedStack.viewControllers.count > 1)
     }
 
     private func barsDidChange(_ progress: CGFloat, in tab: Tab) {
@@ -301,6 +328,7 @@ final class RootViewController: UIViewController {
         profileStack?.view.isHidden = tab != .profile
         setNeedsStatusBarAppearanceUpdate()
         applyBottomBar(selectedBarsProgress)
+        updateRailBack()
         updateBadges()
     }
 

@@ -17,7 +17,7 @@ struct NavigationRailTests {
     }
 
     private func shown(in rail: NavigationRailView) -> [String] {
-        rail.subviews.filter { !$0.isHidden && $0 is UIControl }.compactMap(\.accessibilityIdentifier)
+        rail.subviews.filter { !$0.isHidden && $0.alpha > 0 && $0 is UIControl }.compactMap(\.accessibilityIdentifier)
     }
 
     private func menuTitles(in rail: NavigationRailView) throws -> [String] {
@@ -45,5 +45,21 @@ struct NavigationRailTests {
         rail.frame.size.height = 1000
         rail.layoutIfNeeded()
         #expect(try menuTitles(in: rail) == ["設定"])
+    }
+
+    @Test func theBackButtonGoesFirstAndTakesARoom() throws {
+        let rail = rail(height: 360)
+        #expect(shown(in: rail) == ["rail.home", "rail.search", "rail.notifications", "rail.profile", "rail.more",
+                                    "rail.compose"])
+
+        rail.setShowsBack(true)
+        #expect(shown(in: rail) == ["rail.back", "rail.home", "rail.search", "rail.notifications", "rail.more",
+                                    "rail.compose"])
+        #expect(try view("rail.back", in: rail).frame.maxY < view("rail.home", in: rail).frame.minY)
+        #expect(try menuTitles(in: rail) == ["ブックマーク", "プロフィール", "設定"])
+
+        rail.setShowsBack(false)
+        #expect(!shown(in: rail).contains("rail.back"))
+        #expect(try menuTitles(in: rail) == ["ブックマーク", "設定"])
     }
 }

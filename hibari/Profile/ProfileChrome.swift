@@ -164,7 +164,8 @@ final class ProfileTopBar: UIView {
     var topInset: CGFloat = 0 {
         didSet { setNeedsLayout() }
     }
-    /// Not at the root of a tab (the account's own profile tab): nothing to go back to.
+    /// Not at the root of a tab (the account's own profile tab): nothing to go back to. Nor
+    /// when the side rail has it.
     var showsBackButton = true {
         didSet {
             guard showsBackButton != oldValue else { return }

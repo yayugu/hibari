@@ -149,6 +149,7 @@ final class ProfileViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         topBar.showsBackButton = navigationController?.viewControllers.first !== self
+            && !traitCollection.hasBackButtonInRail
         let bounds = view.bounds
         let top = statusBarHeight
         geometry.width = bounds.width

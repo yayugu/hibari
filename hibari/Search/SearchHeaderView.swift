@@ -114,7 +114,11 @@ final class SearchHeaderView: UIView {
             avatar.layer.cornerRadius = Self.avatarSize / 2
             avatar.clipsToBounds = true
             fieldX = insets.left + 62
+        case .back where traitCollection.hasBackButtonInRail:
+            leadingButton.isHidden = true
+            fieldX = insets.left + 16
         case .back:
+            leadingButton.isHidden = false
             leadingButton.frame = CGRect(x: insets.left + 6, y: row.minY, width: 44, height: row.height)
             fieldX = insets.left + 57
         }

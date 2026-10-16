@@ -79,6 +79,7 @@ final class NavigationHeaderView: UIView {
         let tabsHeight = tabs == nil ? 0 : self.tabsHeight
         rowView.frame = CGRect(x: 0, y: bounds.height - tabsHeight - Self.rowHeight, width: w, height: Self.rowHeight)
         let insets = rowView.topBarInsets
+        backButton.isHidden = traitCollection.hasBackButtonInRail
         backButton.frame = CGRect(x: insets.left + 6, y: 0, width: 44, height: Self.rowHeight)
         trailingButton?.frame = CGRect(x: w - insets.right - 6 - 44, y: 0, width: 44, height: Self.rowHeight)
         let side = 64 + max(insets.left, insets.right)

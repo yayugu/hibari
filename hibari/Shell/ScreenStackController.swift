@@ -1,12 +1,31 @@
 import UIKit
 
-final class ScreenStackController: UINavigationController, UIGestureRecognizerDelegate {
+final class ScreenStackController: UINavigationController, UIGestureRecognizerDelegate,
+                                   UINavigationControllerDelegate {
+    /// A screen is pushed or popped: as it starts (inside its animation), and again once it
+    /// settles (a pop the user drags back may not happen).
+    var onScreensChange: (() -> Void)?
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .hibari(.background)
         isNavigationBarHidden = true
+        delegate = self
         interactivePopGestureRecognizer?.delegate = self
         interactiveContentPopGestureRecognizer?.delegate = self
+    }
+
+    func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController,
+                              animated: Bool) {
+        guard let coordinator = transitionCoordinator else {
+            onScreensChange?()
+            return
+        }
+        coordinator.animate { [weak self] _ in
+            self?.onScreensChange?()
+        } completion: { [weak self] _ in
+            self?.onScreensChange?()
+        }
     }
 
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {

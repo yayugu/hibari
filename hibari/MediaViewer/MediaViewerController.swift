@@ -282,7 +282,7 @@ final class MediaViewerController: UIViewController {
     @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        share(currentPage)
+        share(currentPage, at: gesture.location(in: view))
     }
 
     @objc private func panned(_ gesture: UIPanGestureRecognizer) {
@@ -346,7 +346,7 @@ final class MediaViewerController: UIViewController {
         }
     }
 
-    private func share(_ page: MediaPageView) {
+    private func share(_ page: MediaPageView, at point: CGPoint) {
         let item: Any
         if page.file.isVideo {
             guard let url = page.file.url.flatMap(URL.init(string:)) else { return }
@@ -359,7 +359,12 @@ final class MediaViewerController: UIViewController {
         } else {
             return
         }
-        present(UIActivityViewController(activityItems: [item], applicationActivities: nil), animated: true)
+        let sheet = UIActivityViewController(activityItems: [item], applicationActivities: nil)
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(origin: point, size: .zero)
+        }
+        present(sheet, animated: true)
     }
 }
 

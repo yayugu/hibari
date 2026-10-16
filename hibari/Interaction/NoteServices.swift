@@ -331,7 +331,14 @@ extension NoteServices {
 
     func share(_ note: Note, from controller: UIViewController) {
         guard let url = webURL(of: note) else { return }
-        controller.present(UIActivityViewController(activityItems: [url], applicationActivities: nil), animated: true)
+        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = controller.view
+            popover.sourceRect = CGRect(x: controller.view.bounds.midX, y: controller.view.bounds.midY,
+                                        width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        controller.present(sheet, animated: true)
     }
 
     func menu(for note: Note, from controller: UIViewController) -> UIMenu {

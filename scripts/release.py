@@ -5,6 +5,7 @@
     scripts/release.py release 1.2            # bump, archive, upload, wait, then fill in version 1.2
     scripts/release.py release 1.2 --submit   # ... and submit it for review
     scripts/release.py submit 1.2             # submit a version already filled in
+    scripts/release.py screenshots 1.2        # replace version 1.2's screenshots
 
 `release` runs these steps, each of which can also be run alone:
 
@@ -19,6 +20,10 @@ The release notes need one file per localization of the app on App Store Connect
 release-notes/1.2/ja.txt. `prepare` stops before changing anything if one is missing. They
 cover what changed since the last release's tag (git log v1.1..).
 
+`screenshots` replaces the screenshots of each display type in SCREENSHOTS, in every
+localization, with the files under local/screenshots/ (JPEGs: App Store Connect refuses PNGs
+with alpha). Display types it doesn't list are left as they are.
+
 `submit` tags the commit the submitted build was made from as v1.2 (it doesn't push). `bump` and
 `upload` refuse to run with uncommitted changes, other than to release-notes/, so that the build
 is that commit.
@@ -31,6 +36,7 @@ else uses an App Store Connect API key (a team key, App Manager or above):
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import plistlib
@@ -46,6 +52,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PBXPROJ = ROOT / "hibari.xcodeproj" / "project.pbxproj"
 NOTES_DIR = ROOT / "release-notes"
+SCREENSHOTS_DIR = ROOT / "local" / "screenshots"
+# Display type → files under SCREENSHOTS_DIR, in the order they're shown.
+SCREENSHOTS = {
+    "APP_IPHONE_67": ["promo_01_burst.jpg", "02_reaction.jpg", "03_profile.jpg"],
+    "APP_IPAD_PRO_3GEN_129": ["ipad/01_home.jpg", "ipad/02_reaction.jpg", "ipad/03_profile.jpg"],
+    "APP_IPHONE_DUO": ["duo/01_home.jpg", "duo/02_reaction.jpg", "duo/03_profile.jpg"],
+}
 KEYS_DIR = Path.home() / ".appstoreconnect" / "private_keys"
 API = "https://api.appstoreconnect.apple.com"
 
@@ -448,6 +461,93 @@ def cmd_prepare(args):
     print(f"Version {args.version} uses build {build}")
 
 
+def upload_screenshot(set_id, path):
+    data = path.read_bytes()
+    shot = request(
+        "POST",
+        "/v1/appScreenshots",
+        {"data": {
+            "type": "appScreenshots",
+            "attributes": {"fileName": path.name, "fileSize": len(data)},
+            "relationships": {"appScreenshotSet": resource("appScreenshotSets", set_id)},
+        }},
+    )["data"]
+    for op in shot["attributes"]["uploadOperations"]:
+        part = data[op["offset"] : op["offset"] + op["length"]]
+        req = urllib.request.Request(op["url"], data=part, method=op["method"])
+        for header in op.get("requestHeaders") or []:
+            req.add_header(header["name"], header["value"])
+        with urllib.request.urlopen(req):
+            pass
+    request(
+        "PATCH",
+        f"/v1/appScreenshots/{shot['id']}",
+        {"data": {"type": "appScreenshots", "id": shot["id"],
+                  "attributes": {"uploaded": True,
+                                 "sourceFileChecksum": hashlib.md5(data).hexdigest()}}},
+    )
+    return shot["id"]
+
+
+def wait_for_screenshots(ids, timeout=10 * 60):
+    deadline = time.time() + timeout
+    pending = list(ids)
+    while pending:
+        for id_ in list(pending):
+            state = get(f"/v1/appScreenshots/{id_}")["data"]["attributes"]["assetDeliveryState"]
+            if state["state"] == "COMPLETE":
+                pending.remove(id_)
+            elif state["state"] == "FAILED":
+                errors = "; ".join(e.get("description", e.get("code", "")) for e in state.get("errors") or [])
+                fail(f"screenshot {id_} failed: {errors}")
+        if pending:
+            if time.time() > deadline:
+                fail(f"{len(pending)} screenshots are still processing")
+            time.sleep(5)
+
+
+def cmd_screenshots(args):
+    files = {t: [SCREENSHOTS_DIR / f for f in names] for t, names in SCREENSHOTS.items()}
+    missing = [str(f) for paths in files.values() for f in paths if not f.exists()]
+    if missing:
+        fail("screenshots missing: " + ", ".join(missing))
+    version = next((v for v in versions() if v["attributes"]["versionString"] == args.version), None)
+    if not version:
+        fail(f"no version {args.version} on App Store Connect")
+    if version["attributes"]["appStoreState"] not in EDITABLE_STATES:
+        fail(f"version {args.version} is {version['attributes']['appStoreState']}")
+    uploaded = []
+    for localization in get(f"/v1/appStoreVersions/{version['id']}/appStoreVersionLocalizations")["data"]:
+        locale = localization["attributes"]["locale"]
+        sets = {
+            s["attributes"]["screenshotDisplayType"]: s
+            for s in get(f"/v1/appStoreVersionLocalizations/{localization['id']}/appScreenshotSets")["data"]
+        }
+        for display_type, paths in files.items():
+            set_ = sets.get(display_type) or request(
+                "POST",
+                "/v1/appScreenshotSets",
+                {"data": {
+                    "type": "appScreenshotSets",
+                    "attributes": {"screenshotDisplayType": display_type},
+                    "relationships": {"appStoreVersionLocalization":
+                                      resource("appStoreVersionLocalizations", localization["id"])},
+                }},
+            )["data"]
+            for old in get(f"/v1/appScreenshotSets/{set_['id']}/appScreenshots")["data"]:
+                request("DELETE", f"/v1/appScreenshots/{old['id']}")
+            ids = [upload_screenshot(set_["id"], path) for path in paths]
+            request(
+                "PATCH",
+                f"/v1/appScreenshotSets/{set_['id']}/relationships/appScreenshots",
+                {"data": [{"type": "appScreenshots", "id": i} for i in ids]},
+            )
+            uploaded += ids
+            print(f"{display_type} ({locale}): " + ", ".join(str(p.relative_to(SCREENSHOTS_DIR)) for p in paths))
+    wait_for_screenshots(uploaded)
+    print(f"Screenshots of {args.version} replaced")
+
+
 def cmd_submit(args):
     version = next((v for v in versions() if v["attributes"]["versionString"] == args.version), None)
     if not version:
@@ -526,6 +626,9 @@ def main():
         if name == "release":
             p.add_argument("--submit", action="store_true", help="also submit it for review")
         p.set_defaults(func=func)
+    p = sub.add_parser("screenshots")
+    p.add_argument("version")
+    p.set_defaults(func=cmd_screenshots)
     p = sub.add_parser("submit")
     p.add_argument("version")
     p.set_defaults(func=cmd_submit)

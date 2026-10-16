@@ -67,6 +67,9 @@ final class RootViewController: UIViewController {
     private let statusBarBackdrop = UIView()
     /// Where toasts go: the tabs' content, above the tab bar or beside the side rail.
     private let toastArea = UIView()
+    /// Where the tabs' screens are (beside the side rail), to ask how far its top is from
+    /// the display's round corners.
+    private let contentArea = UIView()
     private var drawerProgress: CGFloat = 0
     private var hud: PerfHUD?
     #if PERF
@@ -139,6 +142,8 @@ final class RootViewController: UIViewController {
         view.addSubview(rail)
         toastArea.isHidden = true
         view.addSubview(toastArea)
+        contentArea.isHidden = true
+        view.addSubview(contentArea)
         Toast.area = toastArea
 
         bottomBar.onSelect = { [weak self] index in
@@ -221,9 +226,16 @@ final class RootViewController: UIViewController {
             rail.isInBarColumn = inBarColumn
         }
         statusBarBackdrop.frame = CGRect(x: content.minX, y: 0, width: content.width, height: safe.top)
+        // Without a status bar along the top (iPhone Duo), the screens start below the
+        // display's round corners there.
+        var topInset: CGFloat = 0
+        if chrome != .bottomBar {
+            contentArea.frame = content
+            topInset = max(0, contentArea.edgeInsets(for: .safeArea(cornerAdaptation: .vertical)).top - safe.top)
+        }
         for stack in stacks {
             stack.view.frame = content
-            stack.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
+            stack.additionalSafeAreaInsets = UIEdgeInsets(top: topInset, left: 0, bottom: bottomInset, right: 0)
         }
         var contentSafe = safe
         contentSafe.bottom += bottomInset

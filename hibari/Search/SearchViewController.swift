@@ -120,6 +120,11 @@ final class SearchViewController: UIViewController {
         header.leadingButton.alpha = 1 - progress
     }
 
+    /// Beside the side rail, which has the account.
+    func setUsesRail(_ usesRail: Bool) {
+        header.usesRail = usesRail
+    }
+
     func focusSearchField() {
         tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
         field.becomeFirstResponder()

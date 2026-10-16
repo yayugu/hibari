@@ -20,6 +20,7 @@ final class TimelinePagerViewController: UIViewController {
     private let composeButton = ComposeButton()
     private let bars = BarsVisibilityController()
     private let pageFeedback = UISelectionFeedbackGenerator()
+    private var usesRail = false
 
     private(set) var currentIndex = 0
 
@@ -113,7 +114,7 @@ final class TimelinePagerViewController: UIViewController {
         pager.contentSize = CGSize(width: bounds.width * CGFloat(timelines.count), height: bounds.height)
         for (index, timeline) in timelines.enumerated() {
             timeline.view.frame = CGRect(x: bounds.width * CGFloat(index), y: 0, width: bounds.width, height: bounds.height)
-            timeline.contentInsets = UIEdgeInsets(top: safe.top + HeaderView.height, left: 0, bottom: safe.bottom, right: 0)
+            timeline.contentInsets = UIEdgeInsets(top: safe.top + header.height, left: 0, bottom: safe.bottom, right: 0)
         }
         if !pager.isDragging && !pager.isDecelerating {
             pager.contentOffset.x = bounds.width * CGFloat(currentIndex)
@@ -121,17 +122,17 @@ final class TimelinePagerViewController: UIViewController {
 
         statusBarBackdrop.frame = CGRect(x: 0, y: 0, width: bounds.width, height: safe.top)
         header.transform = .identity
-        header.frame = CGRect(x: 0, y: safe.top, width: bounds.width, height: HeaderView.height)
+        header.frame = CGRect(x: 0, y: safe.top, width: bounds.width, height: header.height)
         composeButton.transform = .identity
         composeButton.frame = CGRect(x: bounds.width - 16 - ComposeButton.size,
                                      y: bounds.height - safe.bottom - 16 - ComposeButton.size,
                                      width: ComposeButton.size, height: ComposeButton.size)
-        bars.distance = HeaderView.height
+        bars.distance = header.height
         applyBars(bars.progress)
     }
 
     private func applyBars(_ progress: CGFloat) {
-        let headerOffset = -HeaderView.height * progress
+        let headerOffset = -header.height * progress
         header.transform = CGAffineTransform(translationX: 0, y: headerOffset)
         header.contentView.alpha = 1 - progress
         for timeline in timelines {
@@ -211,6 +212,15 @@ final class TimelinePagerViewController: UIViewController {
 
     func setDrawerProgress(_ progress: CGFloat) {
         header.accountButton.alpha = 1 - progress
+    }
+
+    /// Beside the side rail, which has the account and the compose button.
+    func setUsesRail(_ usesRail: Bool) {
+        guard usesRail != self.usesRail else { return }
+        self.usesRail = usesRail
+        header.usesRail = usesRail
+        composeButton.isHidden = usesRail
+        viewIfLoaded?.setNeedsLayout()
     }
 
     private func configureAccountButton(_ account: Account) {

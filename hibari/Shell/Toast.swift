@@ -4,6 +4,10 @@ import UIKit
 enum Toast {
     private static weak var current: UIView?
     private static weak var important: UIView?
+    /// Where toasts go when it's in their window (the tabs' content, above the tab bar or
+    /// beside the side rail): centered over it, above its bottom. Otherwise over the
+    /// window's safe area.
+    static weak var area: UIView?
 
     /// In the app's key window.
     static func show(_ message: String) {
@@ -29,11 +33,17 @@ enum Toast {
         label.layer.cornerRadius = 12
         label.layer.masksToBounds = true
         label.accessibilityIdentifier = "toast"
-        let maxWidth = window.bounds.width - 32
+        let frame = area.flatMap { area -> CGRect? in
+            guard area.window === window else { return nil }
+            let frame = area.convert(area.bounds, to: window)
+            // Not while the content is moved aside for the side drawer.
+            return window.bounds.contains(frame) ? frame : nil
+        } ?? window.bounds.inset(by: window.safeAreaInsets)
+        let maxWidth = frame.width - 32
         let size = label.sizeThatFits(CGSize(width: maxWidth, height: .greatestFiniteMagnitude))
         let width = min(maxWidth, size.width)
-        let bottom = window.bounds.height - window.safeAreaInsets.bottom - BottomBarView.barHeight - 16
-        label.frame = CGRect(x: (window.bounds.width - width) / 2, y: bottom - size.height, width: width, height: size.height)
+        let bottom = frame.maxY - 16
+        label.frame = CGRect(x: frame.midX - width / 2, y: bottom - size.height, width: width, height: size.height)
         window.addSubview(label)
         current = label
         if important { Self.important = label }

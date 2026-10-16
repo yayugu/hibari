@@ -93,11 +93,12 @@ final class NavigationHeaderView: UIView {
 extension UIView {
     /// The room to leave at the sides of a bar along the top of the window: the safe area,
     /// and on iPad the window's controls (close, minimize, full screen) in the top leading
-    /// corner, which cover what is under them and take its taps. Asked of the window, not
-    /// of the bar: a screen sliding in is laid out away from the corner, and not again
-    /// once it gets there.
+    /// corner, which cover what is under them and take its taps. Asked of the screen's
+    /// stack (beside the side rail, away from the corner), or the window, not of the bar: a
+    /// screen sliding in is laid out away from the corner, and not again once it gets there.
     var topBarInsets: UIEdgeInsets {
-        (window ?? self).edgeInsets(for: .safeArea(cornerAdaptation: .horizontal))
+        let stack = sequence(first: self, next: \.superview).first { $0.next is UINavigationController }
+        return (stack ?? window ?? self).edgeInsets(for: .safeArea(cornerAdaptation: .horizontal))
     }
 }
 

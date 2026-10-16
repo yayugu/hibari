@@ -8,6 +8,13 @@ final class RootViewController: UIViewController {
         case profile = 3
     }
 
+    /// Where the tabs are: the bar along the bottom (iPhone), or the side rail at the
+    /// window's left or right edge.
+    private enum Chrome: Equatable {
+        case bottomBar
+        case rail(UIRectEdge)
+    }
+
     let session: TimelineSession
     let services: NoteServices
     let home: TimelinePagerViewController
@@ -20,9 +27,12 @@ final class RootViewController: UIViewController {
             notifications?.onAccountButton = onOpenDrawer
         }
     }
-    /// Home was long-pressed: the account list.
+    /// Home (or the side rail's avatar) was long-pressed: the account list.
     var onShowAccounts: (() -> Void)? {
-        didSet { bottomBar.onLongPressHome = onShowAccounts }
+        didSet {
+            bottomBar.onLongPressHome = onShowAccounts
+            rail.onShowAccounts = onShowAccounts
+        }
     }
     /// Tapped "ログアウト" in the settings.
     var onSignOut: (() -> Void)?
@@ -45,6 +55,13 @@ final class RootViewController: UIViewController {
     private var profile: ProfileViewController?
     private(set) var selectedTab = Tab.home
     private let bottomBar = BottomBarView()
+    private let rail = NavigationRailView()
+    private var chrome = Chrome.bottomBar
+    /// The status bar is on the side rail (iPhone Duo puts it in the column of the bars),
+    /// not over the screen's top.
+    private var railHoldsStatusBar = false
+    /// Where toasts go: the tabs' content, above the tab bar or beside the side rail.
+    private let toastArea = UIView()
     private var drawerProgress: CGFloat = 0
     private var hud: PerfHUD?
     #if PERF
@@ -84,7 +101,9 @@ final class RootViewController: UIViewController {
 
     private var selectedBarsProgress: CGFloat { selectedPager?.barsProgress ?? 0 }
 
-    override var childForStatusBarStyle: UIViewController? { selectedStack.topViewController }
+    override var childForStatusBarStyle: UIViewController? {
+        railHoldsStatusBar ? nil : selectedStack.topViewController
+    }
 
     var timelines: [TimelineViewController] { home.timelines }
     var currentTimeline: TimelineViewController? { home.currentTimeline }
@@ -103,8 +122,24 @@ final class RootViewController: UIViewController {
 
         install(homeStack)
         view.addSubview(bottomBar)
+        rail.isHidden = true
+        view.addSubview(rail)
+        toastArea.isHidden = true
+        view.addSubview(toastArea)
+        Toast.area = toastArea
 
-        bottomBar.onSelect = { [weak self] index in self?.tabTapped(index) }
+        bottomBar.onSelect = { [weak self] index in
+            guard let tab = Tab(rawValue: index) else { return }
+            self?.tabTapped(tab)
+        }
+        rail.onSelect = { [weak self] tab in self?.tabTapped(tab) }
+        rail.onShowBookmarks = { [weak self] in self?.showBookmarks() }
+        rail.onShowSettings = { [weak self] in self?.showSettings() }
+        rail.composeButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            self.services.compose(from: self)
+        }, for: .touchUpInside)
+        rail.setAccount(session.account)
         home.onBarsChange = { [weak self] progress in self?.barsDidChange(progress, in: .home) }
         services.bookmarks.loadRecent()
         if let unread {
@@ -146,15 +181,71 @@ final class RootViewController: UIViewController {
         super.viewDidLayoutSubviews()
         let bounds = view.bounds
         let safe = view.safeAreaInsets
-        for stack in [homeStack, searchStack, notificationsStack, profileStack].compactMap({ $0 }) {
-            stack.view.frame = bounds
-            stack.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: BottomBarView.barHeight, right: 0)
+        let chrome = preferredChrome()
+        if chrome != self.chrome { apply(chrome) }
+
+        var content = bounds
+        let bottomInset: CGFloat
+        switch chrome {
+        case .bottomBar:
+            bottomInset = BottomBarView.barHeight
+            bottomBar.transform = .identity
+            bottomBar.frame = CGRect(x: 0, y: bounds.height - safe.bottom - BottomBarView.barHeight,
+                                     width: bounds.width, height: BottomBarView.barHeight + safe.bottom)
+        case .rail(let edge):
+            // In the system's column where it has one (iPhone Duo: the status bar's, which
+            // is the safe area's inset there), and the content beside it.
+            bottomInset = 0
+            let width = max(NavigationRailView.minimumWidth, edge == .left ? safe.left : safe.right)
+            (rail.frame, content) = bounds.divided(atDistance: width, from: edge == .left ? .minXEdge : .maxXEdge)
+            rail.edge = edge
         }
-        bottomBar.transform = .identity
-        bottomBar.frame = CGRect(x: 0, y: bounds.height - safe.bottom - BottomBarView.barHeight,
-                                 width: bounds.width, height: BottomBarView.barHeight + safe.bottom)
-        hud?.frame = CGRect(x: bounds.width - 180 - 8, y: safe.top + 4, width: 180, height: 64)
+        let railHoldsStatusBar = chrome != .bottomBar && rail.isUnderSystemControls
+        if railHoldsStatusBar != self.railHoldsStatusBar {
+            self.railHoldsStatusBar = railHoldsStatusBar
+            setNeedsStatusBarAppearanceUpdate()
+        }
+        for stack in [homeStack, searchStack, notificationsStack, profileStack].compactMap({ $0 }) {
+            stack.view.frame = content
+            stack.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
+        }
+        var contentSafe = safe
+        contentSafe.bottom += bottomInset
+        if case .rail(let edge) = chrome {
+            if edge == .left { contentSafe.left = 0 } else { contentSafe.right = 0 }
+        }
+        toastArea.frame = content.inset(by: contentSafe)
+        hud?.frame = CGRect(x: content.maxX - 180 - 8, y: safe.top + 4, width: 180, height: 64)
         applyBottomBar(selectedBarsProgress)
+    }
+
+    /// The tabs along the bottom, or at a side of the window: where the system puts its
+    /// bars in a column (iPhone Duo; on the hardware's side, beside the camera), or where
+    /// the window is wide (iPad, iPhone Duo open in portrait), on the leading side like X.
+    private func preferredChrome() -> Chrome {
+        let traits = traitCollection
+        let leading: UIRectEdge = traits.layoutDirection == .rightToLeft ? .right : .left
+        let trailing: UIRectEdge = leading == .left ? .right : .left
+        if #available(iOS 27.1, *) {
+            switch traits.verticalBarEdge {
+            case .leading: return .rail(leading)
+            case .trailing: return .rail(trailing)
+            default: break
+            }
+        }
+        return traits.horizontalSizeClass == .regular ? .rail(leading) : .bottomBar
+    }
+
+    private func apply(_ chrome: Chrome) {
+        self.chrome = chrome
+        let usesRail = chrome != .bottomBar
+        bottomBar.isHidden = usesRail
+        rail.isHidden = !usesRail
+        home.setUsesRail(usesRail)
+        search?.setUsesRail(usesRail)
+        notifications?.setUsesRail(usesRail)
+        // The rail has what the drawer had.
+        if usesRail { (parent as? SideDrawerController)?.close(animated: false) }
     }
 
     private func barsDidChange(_ progress: CGFloat, in tab: Tab) {
@@ -163,12 +254,12 @@ final class RootViewController: UIViewController {
     }
 
     private func applyBottomBar(_ progress: CGFloat) {
+        guard chrome == .bottomBar else { return }
         bottomBar.transform = CGAffineTransform(translationX: 0, y: bottomBar.bounds.height * progress)
         bottomBar.alpha = 1 - progress * 0.6
     }
 
-    private func tabTapped(_ index: Int) {
-        guard let tab = Tab(rawValue: index) else { return }
+    private func tabTapped(_ tab: Tab) {
         if tab == selectedTab {
             reselect()
         } else {
@@ -203,6 +294,7 @@ final class RootViewController: UIViewController {
         }
         selectedTab = tab
         bottomBar.select(tab.rawValue)
+        rail.select(tab)
         homeStack.view.isHidden = tab != .home
         searchStack?.view.isHidden = tab != .search
         notificationsStack?.view.isHidden = tab != .notifications
@@ -215,6 +307,7 @@ final class RootViewController: UIViewController {
     private func makeSearch() {
         let search = SearchViewController(services: services)
         search.onAccountButton = onOpenDrawer
+        search.setUsesRail(chrome != .bottomBar)
         search.loadViewIfNeeded()
         search.setDrawerProgress(drawerProgress)
         let stack = ScreenStackController(rootViewController: search)
@@ -232,6 +325,7 @@ final class RootViewController: UIViewController {
         pager.onAuthenticationFailure = onAuthenticationFailure
         pager.onBarsChange = { [weak self] progress in self?.barsDidChange(progress, in: .notifications) }
         pager.setDrawerProgress(drawerProgress)
+        pager.setUsesRail(chrome != .bottomBar)
         let stack = ScreenStackController(rootViewController: pager)
         notifications = pager
         notificationsStack = stack
@@ -285,11 +379,16 @@ final class RootViewController: UIViewController {
     private func updateBadges() {
         guard let unread else { return }
         let count = selectedTab == .notifications ? 0 : unread.count(for: session.account)
-        bottomBar.setBadge(count > 0 ? .count(count) : nil, at: Tab.notifications.rawValue)
-        bottomBar.setBadge(unread.othersHaveUnread ? .dot : nil, at: Tab.home.rawValue)
+        let notificationsBadge: TabBadge.Value? = count > 0 ? .count(count) : nil
+        let homeBadge: TabBadge.Value? = unread.othersHaveUnread ? .dot : nil
+        bottomBar.setBadge(notificationsBadge, at: Tab.notifications.rawValue)
+        bottomBar.setBadge(homeBadge, at: Tab.home.rawValue)
+        rail.setBadge(notificationsBadge, on: .notifications)
+        rail.setBadge(homeBadge, on: .home)
     }
 
     func update(_ account: Account) {
+        if account.id == session.account.id { rail.setAccount(account) }
         home.update(account)
         search?.update(account)
         notifications?.update(account)
@@ -333,7 +432,7 @@ extension RootViewController: SideDrawerContent {
     /// timelines or goes back.
     var allowsOpeningSideDrawer: Bool {
         let stack = selectedStack
-        return onOpenDrawer != nil && stack.viewControllers.count == 1 && stack.transitionCoordinator == nil
+        return onOpenDrawer != nil && chrome == .bottomBar && stack.viewControllers.count == 1 && stack.transitionCoordinator == nil
             && presentedViewController == nil && selectedPager?.isAtFirstTimeline ?? true
     }
 

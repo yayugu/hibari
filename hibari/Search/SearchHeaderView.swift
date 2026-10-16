@@ -17,6 +17,14 @@ final class SearchHeaderView: UIView {
     var topInset: CGFloat = 0 {
         didSet { setNeedsLayout() }
     }
+    /// Beside the side rail, which has the account: no avatar.
+    var usesRail = false {
+        didSet {
+            guard usesRail != oldValue else { return }
+            leadingButton.isHidden = usesRail && leading == .avatar
+            setNeedsLayout()
+        }
+    }
 
     private let leading: Leading
     private let avatar = AvatarView()
@@ -97,6 +105,8 @@ final class SearchHeaderView: UIView {
         let insets = topBarInsets
         let fieldX: CGFloat
         switch leading {
+        case .avatar where usesRail:
+            fieldX = insets.left + 16
         case .avatar:
             leadingButton.frame = CGRect(x: insets.left + 10, y: row.minY, width: 44, height: row.height)
             avatar.frame = CGRect(x: 6, y: (row.height - Self.avatarSize) / 2, width: Self.avatarSize,

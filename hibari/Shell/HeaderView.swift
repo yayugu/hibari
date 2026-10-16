@@ -3,13 +3,24 @@ import UIKit
 final class HeaderView: UIView {
     static let topRowHeight: CGFloat = 44
     static let tabsHeight: CGFloat = 44
-    static var height: CGFloat { topRowHeight + tabsHeight }
 
     let tabStrip: TabStripView
     let contentView = UIView()
 
     let accountButton = UIButton(type: .custom)
 
+    /// Beside the side rail, which has the account and the mark: without them, and the
+    /// row above the tabs only for a title (X on iPad).
+    var usesRail = false {
+        didSet {
+            guard usesRail != oldValue else { return }
+            accountButton.isHidden = usesRail
+            logo.isHidden = usesRail
+            setNeedsLayout()
+        }
+    }
+
+    private let hasTitle: Bool
     private let avatar = AvatarView()
     private let logo = UIImageView()
     private let titleLabel = UILabel()
@@ -18,6 +29,7 @@ final class HeaderView: UIView {
 
     init(titles: [String], title: String? = nil) {
         tabStrip = TabStripView(titles: titles)
+        hasTitle = title != nil
         super.init(frame: .zero)
         backgroundColor = .hibari(.background)
         addSubview(contentView)
@@ -53,6 +65,11 @@ final class HeaderView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    private var shownTopRowHeight: CGFloat { usesRail && !hasTitle ? 0 : Self.topRowHeight }
+
+    /// The rows, without the status bar.
+    var height: CGFloat { shownTopRowHeight + Self.tabsHeight }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         let w = bounds.width
@@ -63,7 +80,7 @@ final class HeaderView: UIView {
         logo.frame = CGRect(x: (w - 28) / 2, y: (Self.topRowHeight - 28) / 2, width: 28, height: 28)
         let side = 64 + max(insets.left, insets.right)
         titleLabel.frame = CGRect(x: side, y: 0, width: max(0, w - 2 * side), height: Self.topRowHeight)
-        tabStrip.frame = CGRect(x: 0, y: Self.topRowHeight, width: w, height: Self.tabsHeight)
+        tabStrip.frame = CGRect(x: 0, y: shownTopRowHeight, width: w, height: Self.tabsHeight)
         let scale = window?.screen.scale ?? traitCollection.displayScale
         hairline.frame = CGRect(x: 0, y: bounds.height - 1 / scale, width: w, height: 1 / scale)
     }

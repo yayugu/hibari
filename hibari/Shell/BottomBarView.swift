@@ -3,11 +3,6 @@ import UIKit
 final class BottomBarView: UIView {
     static let barHeight: CGFloat = 49
 
-    enum Badge {
-        case dot
-        case count(Int)
-    }
-
     /// A tab was tapped (also the one shown).
     var onSelect: ((Int) -> Void)?
     var onLongPressHome: (() -> Void)? {
@@ -18,7 +13,7 @@ final class BottomBarView: UIView {
     private let tint = UIView()
     private let hairline = UIView()
     private var buttons: [UIButton] = []
-    private var badges: [UILabel] = []
+    private var badges: [TabBadge] = []
     private var selectedIndex = 0
     private let feedback = UIImpactFeedbackGenerator(style: .light)
     private let longPressFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -47,16 +42,7 @@ final class BottomBarView: UIView {
             addSubview(button)
             buttons.append(button)
 
-            let badge = UILabel()
-            badge.isHidden = true
-            badge.isUserInteractionEnabled = false
-            badge.textAlignment = .center
-            badge.font = .systemFont(ofSize: 10, weight: .bold)
-            badge.textColor = .white
-            badge.backgroundColor = .hibari(.accent)
-            badge.layer.borderWidth = 2
-            badge.layer.masksToBounds = true
-            badge.layer.borderColor = UIColor.hibari(.background).cgColor
+            let badge = TabBadge()
             button.addSubview(badge)
             badges.append(badge)
         }
@@ -64,38 +50,15 @@ final class BottomBarView: UIView {
         homeLongPress.isEnabled = false
         homeLongPress.addTarget(self, action: #selector(homeLongPressed(_:)))
         buttons[0].addGestureRecognizer(homeLongPress)
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
-            let color = UIColor.hibari(.background).resolvedColor(with: self.traitCollection).cgColor
-            for badge in self.badges { badge.layer.borderColor = color }
-        }
         updateButtons()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    func setBadge(_ value: Badge?, at index: Int) {
+    func setBadge(_ value: TabBadge.Value?, at index: Int) {
         guard badges.indices.contains(index) else { return }
-        let badge = badges[index]
-        switch value {
-        case .none:
-            badge.isHidden = true
-            buttons[index].accessibilityValue = nil
-        case .dot:
-            badge.text = nil
-            badge.isHidden = false
-            buttons[index].accessibilityValue = "未読あり"
-        case .count(let count):
-            guard count > 0 else {
-                badge.isHidden = true
-                buttons[index].accessibilityValue = nil
-                return
-            }
-            let displayedCount = count > 99 ? "99+" : String(count)
-            badge.text = displayedCount
-            badge.isHidden = false
-            buttons[index].accessibilityValue = "未読 \(displayedCount) 件"
-        }
+        buttons[index].accessibilityValue = badges[index].show(value)
         setNeedsLayout()
     }
 
@@ -134,14 +97,66 @@ final class BottomBarView: UIView {
         let width = bounds.width / CGFloat(buttons.count)
         for (index, button) in buttons.enumerated() {
             button.frame = CGRect(x: CGFloat(index) * width, y: 0, width: width, height: Self.barHeight)
-            let badge = badges[index]
-            let isCount = badge.text != nil
-            let badgeWidth: CGFloat = isCount ? max(20, (badge.intrinsicContentSize.width + 10).rounded(.up)) : 10
-            let badgeHeight: CGFloat = isCount ? 20 : 10
-            badge.frame = CGRect(x: width / 2 + 7, y: isCount ? 5 : 8,
-                                 width: badgeWidth, height: badgeHeight)
-            badge.layer.cornerRadius = badgeHeight / 2
+            badges[index].place(atTopRightOfIconAt: CGPoint(x: width / 2, y: Self.barHeight / 2))
         }
+    }
+}
+
+/// The count or the dot on a tab's icon.
+final class TabBadge: UILabel {
+    enum Value {
+        case dot
+        case count(Int)
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isHidden = true
+        isUserInteractionEnabled = false
+        textAlignment = .center
+        font = .systemFont(ofSize: 10, weight: .bold)
+        textColor = .white
+        backgroundColor = .hibari(.accent)
+        layer.borderWidth = 2
+        layer.masksToBounds = true
+        layer.borderColor = UIColor.hibari(.background).cgColor
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            self.layer.borderColor = UIColor.hibari(.background).resolvedColor(with: self.traitCollection).cgColor
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// Shows `value` (nothing for nil or a count of 0). Returns what VoiceOver says of the tab.
+    func show(_ value: Value?) -> String? {
+        switch value {
+        case .none:
+            isHidden = true
+            return nil
+        case .dot:
+            text = nil
+            isHidden = false
+            return "未読あり"
+        case .count(let count):
+            guard count > 0 else {
+                isHidden = true
+                return nil
+            }
+            let displayedCount = count > 99 ? "99+" : String(count)
+            text = displayedCount
+            isHidden = false
+            return "未読 \(displayedCount) 件"
+        }
+    }
+
+    /// Over the top right corner of the 24pt icon centered at `center`.
+    func place(atTopRightOfIconAt center: CGPoint) {
+        let isCount = text != nil
+        let width: CGFloat = isCount ? max(20, (intrinsicContentSize.width + 10).rounded(.up)) : 10
+        let height: CGFloat = isCount ? 20 : 10
+        frame = CGRect(x: center.x + 7, y: center.y - (isCount ? 19.5 : 16.5), width: width, height: height)
+        layer.cornerRadius = height / 2
     }
 }
 

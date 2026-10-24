@@ -29,7 +29,7 @@ struct APITimelineSource: NoteTimelineSource {
     }
 }
 
-enum TimelineKind: String, CaseIterable, Sendable {
+enum TimelineKind: String, CaseIterable, Codable, Sendable {
     case home
     case featured
     case local

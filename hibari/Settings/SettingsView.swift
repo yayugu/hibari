@@ -4,9 +4,16 @@ import UIKit
 final class SettingsViewController: UIViewController {
     private let form: UIHostingController<SettingsView>
     
-    init(account: Account, onSignOut: @escaping () -> Void = {}) {
+    /// `timelineKinds`: the ones the account has, for the tabs (none: the tabs cannot change).
+    init(account: Account, timelineKinds: [TimelineKind] = [], onSignOut: @escaping () -> Void = {}) {
         form = UIHostingController(rootView: SettingsView(account: account, onSignOut: onSignOut))
         super.init(nibName: nil, bundle: nil)
+        if !timelineKinds.isEmpty {
+            form.rootView.onShowTimelineTabs = { [weak self] in
+                self?.navigationController?.pushViewController(
+                    TimelineTabsViewController(account: account, kinds: timelineKinds), animated: true)
+            }
+        }
     }
     
     @available(*, unavailable)
@@ -14,18 +21,27 @@ final class SettingsViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        install(form, title: "設定", identifier: "settings")
+    }
+}
+
+extension UIViewController {
+    /// `form` over the whole screen, under a bar with `title` and the back button.
+    func install(_ form: UIViewController, title: String, identifier: String) {
         addChild(form)
         form.view.frame = view.bounds
         form.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(form.view)
         form.didMove(toParent: self)
-        NavigationHeaderView(title: "設定", identifier: "settings").install(in: self)
+        NavigationHeaderView(title: title, identifier: identifier).install(in: self)
     }
 }
 
 struct SettingsView: View {
     let account: Account
     var onSignOut: () -> Void = {}
+    /// Opens "タイムラインのタブ" (no row without it).
+    var onShowTimelineTabs: (() -> Void)?
     @AppStorage(AppSettings.appearanceKey) private var appearance = AppSettings.appearance
     @AppStorage private var sensitiveMedia: SensitiveMediaDisplay
     @State private var confirmsSignOut = false
@@ -47,6 +63,20 @@ struct SettingsView: View {
                 ForEach(SensitiveMediaDisplay.allCases, id: \.self) { Text($0.title) }
             }
             .pickerStyle(.inline)
+            if let onShowTimelineTabs {
+                Section {
+                    Button(action: onShowTimelineTabs) {
+                        HStack {
+                            Text("タイムラインのタブ").foregroundStyle(Color(uiColor: .hibari(.primaryText)))
+                            Spacer()
+                            Image(systemName: "chevron.forward")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.timelineTabs")
+                }
+            }
             Text("\(account.acct) の設定です")
                 .font(.footnote)
                 .foregroundStyle(.secondary)

@@ -48,6 +48,29 @@ struct TimelinePage: Sendable {
     let cursor: String?
 }
 
+/// The notes with files of `base`, for an endpoint that takes no `withFiles`. A page may
+/// come out empty; the next one starts where the server's left off.
+struct NotesWithFilesSource: TimelineSource {
+    let base: any TimelineSource
+
+    var refreshPolicy: RefreshPolicy { base.refreshPolicy }
+
+    func page(until cursor: String?, limit: Int) async throws -> TimelinePage {
+        Self.withFiles(try await base.page(until: cursor, limit: limit))
+    }
+
+    func page(after sinceID: String, limit: Int) async throws -> TimelinePage? {
+        try await base.page(after: sinceID, limit: limit).map(Self.withFiles)
+    }
+
+    /// As Misskey's `withFiles`: the note's own files (a renote has none).
+    private static func withFiles(_ page: TimelinePage) -> TimelinePage {
+        TimelinePage(entries: page.entries.filter { entry in
+            if case .note(let note) = entry { !note.files.isEmpty } else { false }
+        }, cursor: page.cursor)
+    }
+}
+
 protocol NoteTimelineSource: TimelineSource {
     /// Up to `limit` notes older than the note `untilID` (the newest when nil). An empty
     /// result means the end of the timeline.

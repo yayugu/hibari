@@ -165,6 +165,8 @@ final class RootViewController: UIViewController {
             NotificationCenter.default.addObserver(self, selector: #selector(unreadDidChange),
                                                    name: UnreadNotifications.didChange, object: unread)
         }
+        NotificationCenter.default.addObserver(self, selector: #selector(settingsDidChange),
+                                               name: AppSettings.didChange, object: nil)
         updateBadges()
 
         #if PERF
@@ -409,6 +411,11 @@ final class RootViewController: UIViewController {
         }
     }
 
+    @objc private func settingsDidChange() {
+        guard let pages = session.timelines(for: AppSettings.timelineTabs(for: session.account)) else { return }
+        home.setPages(pages)
+    }
+
     @objc private func unreadDidChange() {
         updateBadges()
         if selectedTab == .notifications, unread?.hasUnread(session.account) == true {
@@ -462,7 +469,9 @@ final class RootViewController: UIViewController {
     func showSettings() {
         let stack = selectedStack
         stack.popToRootViewController(animated: false)
-        let settings = SettingsViewController(account: session.account) { [weak self] in self?.onSignOut?() }
+        let settings = SettingsViewController(account: session.account, timelineKinds: session.timelineKinds) {
+            [weak self] in self?.onSignOut?()
+        }
         stack.pushViewController(settings, animated: false)
     }
 }

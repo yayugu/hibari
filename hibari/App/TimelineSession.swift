@@ -6,13 +6,19 @@ struct TimelineSession {
         let title: String
         let source: any TimelineSource
         var emptyMessage = "まだノートがありません"
+        /// Only the notes with files: the tab has the media mark before `title`.
+        var mediaOnly = false
     }
 
+    /// The home tab's, as the settings had them when the session started.
     let timelines: [Timeline]
     /// The notifications tab's: all of them, the notes that mention the account and the
     /// direct notes to it (as Misskey's web client has them). None for the fixtures of perf
     /// builds.
     var notificationTimelines: [Timeline] = []
+    /// The timelines the account has, for the settings' tabs. None for the fixtures of perf
+    /// builds.
+    var timelineKinds: [TimelineKind] = []
     let engine: NoteLayoutEngine
     let clock: TimelineClock
     let account: Account
@@ -31,10 +37,10 @@ struct TimelineSession {
                      didReadNotifications: @escaping @Sendable () -> Void = {}) -> TimelineSession {
         var client = MisskeyClient(server: account.server, token: token)
         client.onMissingPermission = onMissingPermission
+        let kinds = TimelineKind.available(for: account, server: resources.info)
         return TimelineSession(
-            timelines: TimelineKind.available(for: account, server: resources.info).map { kind in
-                Timeline(id: kind.rawValue, title: kind.title,
-                         source: APITimelineSource(client: client, endpoint: kind.endpoint))
+            timelines: TimelineTab.shown(AppSettings.timelineTabs(for: account), of: kinds).map {
+                $0.timeline(client: client)
             },
             notificationTimelines: [
                 Timeline(id: "notifications", title: "すべて",
@@ -48,6 +54,7 @@ struct TimelineSession {
                                                    parameters: ["visibility": "specified"]),
                          emptyMessage: "まだダイレクトがありません"),
             ],
+            timelineKinds: kinds,
             engine: NoteLayoutEngine(emojiResolver: resources.emojiResolver(), sizes: ImagePipeline.shared,
                                      linkPreviews: LinkPreviewStore(server: account.server,
                                                                     media: ImagePipeline.shared.source),
@@ -57,5 +64,12 @@ struct TimelineSession {
             client: client,
             emojis: resources.emojiCatalog(),
             maxNoteTextLength: resources.info.maxNoteTextLength ?? 3000)
+    }
+
+    /// The home tab's timelines for the settings' `tabs`, of the ones the account has. nil
+    /// for the fixtures of perf builds, which stay as they are.
+    func timelines(for tabs: [TimelineTab]) -> [Timeline]? {
+        guard let client else { return nil }
+        return TimelineTab.shown(tabs, of: timelineKinds).map { $0.timeline(client: client) }
     }
 }

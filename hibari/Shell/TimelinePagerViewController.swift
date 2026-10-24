@@ -3,7 +3,7 @@ import UIKit
 final class TimelinePagerViewController: UIViewController {
     let session: TimelineSession
     let services: NoteServices
-    private let pages: [TimelineSession.Timeline]
+    private var pages: [TimelineSession.Timeline]
     private let showsPostedNotes: Bool
     private let savesTimelines: Bool
     private(set) var timelines: [TimelineViewController] = []
@@ -32,7 +32,7 @@ final class TimelinePagerViewController: UIViewController {
         self.pages = pages
         self.showsPostedNotes = showsPostedNotes
         self.savesTimelines = savesTimelines
-        header = HeaderView(titles: pages.map(\.title), title: title)
+        header = HeaderView(tabs: pages.map(\.tab), title: title)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -61,20 +61,7 @@ final class TimelinePagerViewController: UIViewController {
         pager.delegate = self
         view.addSubview(pager)
 
-        for timeline in pages {
-            let controller = TimelineViewController(timelineID: timeline.id, source: timeline.source, services: services)
-            controller.emptyMessage = timeline.emptyMessage
-            controller.waitsForActivation = true
-            if savesTimelines, timeline.source.refreshPolicy == .preserveHistory {
-                controller.snapshotStore = TimelineSnapshotStore(accountID: session.account.id, timelineID: timeline.id)
-            }
-            controller.scrollObserver = self
-            controller.onAuthenticationFailure = { [weak self] in self?.onAuthenticationFailure?() }
-            addChild(controller)
-            pager.addSubview(controller.view)
-            controller.didMove(toParent: self)
-            timelines.append(controller)
-        }
+        timelines = pages.map(makeTimeline)
         currentTimeline?.activate()
 
         statusBarBackdrop.backgroundColor = .hibari(.background)
@@ -96,6 +83,49 @@ final class TimelinePagerViewController: UIViewController {
         configureAccountButton(session.account)
         bars.onChange = { [weak self] progress in self?.applyBars(progress) }
         updateScrollsToTop()
+    }
+
+    private func makeTimeline(_ timeline: TimelineSession.Timeline) -> TimelineViewController {
+        let controller = TimelineViewController(timelineID: timeline.id, source: timeline.source, services: services)
+        controller.emptyMessage = timeline.emptyMessage
+        controller.waitsForActivation = true
+        if savesTimelines, timeline.source.refreshPolicy == .preserveHistory {
+            controller.snapshotStore = TimelineSnapshotStore(accountID: session.account.id, timelineID: timeline.id)
+        }
+        controller.scrollObserver = self
+        controller.onAuthenticationFailure = { [weak self] in self?.onAuthenticationFailure?() }
+        addChild(controller)
+        pager.addSubview(controller.view)
+        controller.didMove(toParent: self)
+        return controller
+    }
+
+    /// The settings changed the tabs. The timelines that stay keep what they have, and the
+    /// one shown stays shown (or the one now in its place).
+    func setPages(_ pages: [TimelineSession.Timeline]) {
+        guard pages.map(\.id) != self.pages.map(\.id) || pages.map(\.tab) != self.pages.map(\.tab) else { return }
+        self.pages = pages
+        header.tabStrip.setTabs(pages.map(\.tab))
+        guard isViewLoaded else { return }
+        let shownID = currentTimeline?.timelineID
+        var removed = Dictionary(uniqueKeysWithValues: timelines.map { ($0.timelineID, $0) })
+        timelines = pages.map { removed.removeValue(forKey: $0.id) ?? makeTimeline($0) }
+        for timeline in removed.values {
+            timeline.saveSnapshot()
+            timeline.willMove(toParent: nil)
+            timeline.view.removeFromSuperview()
+            timeline.removeFromParent()
+        }
+        currentIndex = timelines.firstIndex { $0.timelineID == shownID } ?? max(0, min(currentIndex, timelines.count - 1))
+        currentTimeline?.activate()
+        updateScrollsToTop()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        header.tabStrip.setProgress(CGFloat(currentIndex))
+        if let scrollView = currentTimeline?.collectionView {
+            bars.reset(for: scrollView)
+        }
+        bars.show(animated: false)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -226,6 +256,13 @@ final class TimelinePagerViewController: UIViewController {
     private func configureAccountButton(_ account: Account) {
         header.accountButton.accessibilityValue = account.acct
         header.setAvatar(account.avatarUrl)
+    }
+}
+
+private extension TimelineSession.Timeline {
+    var tab: TabStripView.Tab {
+        TabStripView.Tab(title: title, mark: mediaOnly ? .media : nil,
+                         accessibilityLabel: mediaOnly ? TimelineTab.mediaTitle(title) : nil)
     }
 }
 

@@ -71,6 +71,23 @@ enum AppSettings {
         usesTestAccounts ? "HibariUITestSensitiveMedia" : "HibariSensitiveMedia"
     }
 
+    /// The settings screen's "タイムラインのタブ", per account, in order. The defaults until
+    /// changed. The timelines the account has are left to `TimelineTab.shown`.
+    static func timelineTabs(for account: Account) -> [TimelineTab] {
+        guard let data = defaults.data(forKey: timelineTabsKey(for: account)),
+              let tabs = try? JSONDecoder().decode([TimelineTab].self, from: data), !tabs.isEmpty
+        else { return TimelineTab.defaults }
+        return tabs
+    }
+
+    static func setTimelineTabs(_ tabs: [TimelineTab], for account: Account) {
+        defaults.set(try? JSONEncoder().encode(tabs), forKey: timelineTabsKey(for: account))
+    }
+
+    private static func timelineTabsKey(for account: Account) -> String {
+        (usesTestAccounts ? "HibariUITestTimelineTabs" : "HibariTimelineTabs") + "." + account.id
+    }
+
     /// The composer's photo button attaches this many generated images instead of opening
     /// the photo picker (UI tests, which cannot drive the picker). Debug builds only.
     static var composeSampleImages: Int { defaults.integer(forKey: "HibariComposeSampleImages") }

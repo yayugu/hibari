@@ -27,8 +27,8 @@ final class HeaderView: UIView {
     private let hairline = UIView()
     private static let avatarSize: CGFloat = 32
 
-    init(titles: [String], title: String? = nil) {
-        tabStrip = TabStripView(titles: titles)
+    init(tabs: [TabStripView.Tab], title: String? = nil) {
+        tabStrip = TabStripView(tabs: tabs)
         hasTitle = title != nil
         super.init(frame: .zero)
         backgroundColor = .hibari(.background)
@@ -93,9 +93,24 @@ extension HeaderView {
 }
 
 final class TabStripView: UIView {
+    struct Tab: Equatable {
+        enum Mark {
+            /// Only the notes with files.
+            case media
+        }
+
+        var title: String
+        /// Before the title.
+        var mark: Mark?
+        /// Read instead of the title, for what the mark says.
+        var accessibilityLabel: String?
+    }
+
     var onSelect: ((Int) -> Void)?
 
     private let scrollView = UIScrollView()
+    private let identifierPrefix: String
+    private var tabs: [Tab] = []
     private var labels: [UILabel] = []
     private let indicator = TabIndicator.make()
     private(set) var selectedIndex = 0
@@ -105,9 +120,17 @@ final class TabStripView: UIView {
 
     private static let titlePadding: CGFloat = 22
     private static let font = UIFont.systemFont(ofSize: 16, weight: .bold)
+    private static let mediaMark = UIImage(named: "MediaMark")
+    private static let markGap: CGFloat = 3
+    private static let spaceWidth = (" " as NSString).size(withAttributes: [.font: font]).width
+
+    convenience init(titles: [String], identifierPrefix: String = "tab") {
+        self.init(tabs: titles.map { Tab(title: $0) }, identifierPrefix: identifierPrefix)
+    }
 
     /// Tabs are identified as "<identifierPrefix>.<index>" for accessibility.
-    init(titles: [String], identifierPrefix: String = "tab") {
+    init(tabs: [Tab], identifierPrefix: String = "tab") {
+        self.identifierPrefix = identifierPrefix
         super.init(frame: .zero)
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
@@ -115,24 +138,33 @@ final class TabStripView: UIView {
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.delegate = self
         addSubview(scrollView)
-        for (index, title) in titles.enumerated() {
-            let label = UILabel()
-            label.text = title
-            label.font = Self.font
-            label.textAlignment = .center
-            label.isUserInteractionEnabled = true
-            label.accessibilityTraits = .button
-            label.accessibilityIdentifier = "\(identifierPrefix).\(index)"
-            label.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
-            scrollView.addSubview(label)
-            labels.append(label)
-        }
         scrollView.addSubview(indicator)
-        updateLabels()
+        setTabs(tabs)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in self.updateLabels() }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Replaces the tabs. `setProgress` says which is selected after it.
+    func setTabs(_ tabs: [Tab]) {
+        self.tabs = tabs
+        labels.forEach { $0.removeFromSuperview() }
+        labels = tabs.enumerated().map { index, tab in
+            let label = UILabel()
+            label.isUserInteractionEnabled = true
+            label.accessibilityLabel = tab.accessibilityLabel
+            label.accessibilityIdentifier = "\(identifierPrefix).\(index)"
+            label.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
+            scrollView.insertSubview(label, belowSubview: indicator)
+            return label
+        }
+        progress = min(progress, CGFloat(max(0, labels.count - 1)))
+        selectedIndex = Int(progress.rounded())
+        userScroll = nil
+        updateLabels()
+        setNeedsLayout()
+    }
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         guard let label = gesture.view as? UILabel, let index = labels.firstIndex(of: label) else { return }
@@ -155,9 +187,26 @@ final class TabStripView: UIView {
     private func updateLabels() {
         for (index, label) in labels.enumerated() {
             let selected = index == selectedIndex
-            label.textColor = selected ? .hibari(.primaryText) : .hibari(.secondaryText)
+            let color = UIColor.hibari(selected ? .primaryText : .secondaryText).resolvedColor(with: traitCollection)
+            label.attributedText = Self.text(of: tabs[index], color: color)
+            label.textAlignment = .center
             label.accessibilityTraits = selected ? [.button, .selected] : .button
         }
+    }
+
+    /// The title, after the mark (tinted like it, centered on the letters).
+    private static func text(of tab: Tab, color: UIColor) -> NSAttributedString {
+        let text = NSMutableAttributedString()
+        if tab.mark == .media, let mark = mediaMark {
+            let attachment = NSTextAttachment(image: mark.withTintColor(color, renderingMode: .alwaysOriginal))
+            let size = mark.size
+            attachment.bounds = CGRect(x: 0, y: (font.capHeight - size.height) / 2, width: size.width, height: size.height)
+            text.append(NSAttributedString(attachment: attachment))
+            // A space narrowed to the gap: an attachment's own kern goes unused.
+            text.append(NSAttributedString(string: " ", attributes: [.font: font, .kern: markGap - spaceWidth]))
+        }
+        text.append(NSAttributedString(string: tab.title, attributes: [.font: font, .foregroundColor: color]))
+        return text
     }
 
     override func layoutSubviews() {
@@ -165,9 +214,7 @@ final class TabStripView: UIView {
         scrollView.frame = bounds
         guard !labels.isEmpty else { return }
         let count = CGFloat(labels.count)
-        let textWidths = labels.map {
-            ceil((($0.text ?? "") as NSString).size(withAttributes: [.font: Self.font]).width)
-        }
+        let textWidths = labels.map { ceil($0.attributedText?.size().width ?? 0) }
         let equal = bounds.width / count
         let widths: [CGFloat]
         if textWidths.allSatisfy({ $0 + 16 <= equal }) {

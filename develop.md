@@ -1,85 +1,38 @@
 ## 基本方針
-- iPhone に特化する（iPhone Duo と iPad は、同じ画面にサイドレールを付けて対応する）
+- iPhone に特化する。iPadもそれなりに対応
 - 120Hzでタイムラインをスクロールできる
 - アニメーションやハプティックフィードバックをリッチにする
 - タイムラインなどパフォーマンスが重要な場所はUIKitで、設定などそうでもないところはSwiftUIで
 
 ## 開発
 
-Xcode 27 / iOS 27 SDK が必要です。
+Xcode 27.1。
 実機で動かす場合は `Config/Signing.local.xcconfig`（gitignore）に Team ID と Bundle ID prefix を書きます（`Config/Signing.xcconfig` 参照）。
 Debug / Perf 構成は Bundle ID の末尾に `.debug` が付き（表示名は「Hibari β」）、リリース版とは別アプリとしてインストールされます。
 
 ```sh
-# 1. ビルドして実行（Xcode で hibari スキームを Run でも可）
+# ビルドして実行（Xcode で hibari スキームを Run でも可）
 xcodebuild -scheme hibari -destination 'platform=iOS Simulator,name=iPhone 17' build
 
-# 2. 普段のテスト（unit test。iPhone 17 で実行する）
+# Test
 python3 scripts/test_unit.py
-# 一部だけ: python3 scripts/test_unit.py -only-testing:hibariTests/TimelineTabTests
-
-# 3. UI テスト（別スキーム）
 python3 scripts/test_ui.py
+# 一部だけ: python3 scripts/test_unit.py -only-testing:hibariTests/TimelineTabTests
 # 端末や並列数を変える場合: python3 scripts/test_ui.py --destination 'platform=iOS Simulator,id=...' --workers 2
 
-# 4. パフォーマンステスト（Perf 構成。実機は DESTINATION='platform=iOS,name=<端末名>'）
+# パフォーマンステスト（Perf 構成。実機は DESTINATION='platform=iOS,name=<端末名>'）
+#    計測が必要な場合のみ実行
 #    先にテストデータ（misskey.io のタイムラインとメディア、perf/Fixtures.bundle、約300MB）を取得する
 scripts/fetch_fixtures.py
 scripts/perf.sh
 ```
 
-### テストの選び方
-
-- **unit test にする:** 入力と期待結果を画面を起動せずに確かめられる処理。モデルの変換、API のリクエスト・レスポンス、投稿やリアクションの状態遷移、アカウント選択、レイアウト計算などを `hibariTests` で検証する。通信は `StubURLProtocol` などで差し替え、実サーバーや固定ポートには依存させない。
-- unit test は `scripts/test_unit.py` から iPhone 17 で実行する。結果が端末で変わらないように書くが、確かめるのはこの端末だけにする。
-- システムの画面（共有シートなど）は表示しない。表示すると別プロセスのサービスを待つことになり、表示した後の状態も端末で変わる（iPhone では共有シートのポップオーバーの位置が置き換わる）。アプリが渡す設定を、表示する前に確かめる。
-- 決まった時間だけ待たない。状態が変わるのを待つ。「何も起きない」ことを確かめるときは、それを起こしうる処理（`Task` など）が終わるのを待ってから確かめる。
-- **unit test にしない:** 実際のタップ・スワイプ、画面遷移、システム画面との受け渡し。アプリを操作しないと確認できない導線だけを `hibariUITests` で短く検証する。モデルや API の結果、状態の組み合わせを UI テストで繰り返し確認しない。
-- UI テストを追加する前に、表示したい状態を unit test で再現できないか確認する。UI が必要なら、要素はアクセシビリティ ID で探し、時間待ちではなく状態を待つ。並列実行を前提に、テスト同士で同じ mock の可変状態を取り合わないようにする。
 - UI テストは極めて実行が遅いため開発のボトルネックになっている。追加した場合はcommit前に残す価値があるか再検討して、なかったら削ること
-- UI テストは `scripts/test_ui.py` から実行する。スクリプトが実行ごとに空きポートの mock を起動し、終了時に停止する。別 worktree ではビルド出力もそれぞれの `build/DerivedData` を使う。`--workers` は Xcode の並列ワーカー数の上限を指定する。
+- Unit Testは数秒、UITestは1分以内に終了するようにすること。テスト変更後にそれ以上かかるようになってしまった場合は全体をみて取捨選択や効率化すること
 
-### タブバーとサイドレール
+### ローカル Misskey（本物のサーバー）
 
-- タブとドロワーの中身は、`RootViewController` が画面の幅とシステムのバーの位置で、下のタブバー（`BottomBarView`、ドロワーは `SideDrawerController`）か、横のサイドレール（`NavigationRailView`、X の iPad 版と同じ）のどちらかにして出す。
-- システムが縦のバーを置く場所（`traitCollection.verticalBarEdge`。iPhone Duo の外側の画面と、開いて横向きのとき）があればそこにレールを置く。iPhone Duo ではその列にステータスバーとカメラもあり、セーフエリアの左右どちらかの余白になっているので、その列の幅をそのままレールにして、項目はシステムが自分のバーを置くレーン（`UIView.LayoutRegion.bar(onEdge:extent:)`。ステータスバーの下で、ステータスバーとカメラと同じ線）に並べる。半分折ったときの折り目（`reservedRegions` の division）も避ける。
-- このときは、戻るボタンもシステムと同じくレールの一番上に出す。画面側の戻るボタンは、`traitCollection.hasBackButtonInRail` を見て出さない。
-- 縦のバーがなく幅が regular（iPad、iPhone Duo を開いて縦向き）なら、先頭側にレールを置く。それ以外（ふつうの iPhone、iPad の狭いウインドウ）は下のタブバーで、ドロワーもこのときだけ開く。
-- レールのときはタブの画面をレールの横に置くので、画面側は左右の余白を気にしなくてよい。ヘッダーのアバターと鳥のマーク、タイムラインの投稿ボタンはレールにあるので出さない（`setUsesRail`）。
-- iPhone Duo では上端にステータスバーがなく、セーフエリアの上の余白が 0 になる。開いたときの画面は四隅が丸いので、タブの画面は角を避けた分（`.safeArea(cornerAdaptation: .vertical)`）を上の余白に足す（閉じたときはヒンジ側の角が四角なので 0）。
-- ステータスバーが上にあるとき（iPad）は、ステータスバーがレールと画面にまたがる。画面のステータスバーの下は背景色で覆い、文字色はレールに合わせる（プロフィールのバナーもステータスバーの下から）。
-- 縦が足りないとき（iPhone Duo で Dynamic Island が伸びたときなど）は、ブックマーク・プロフィール・通知・検索の順に「その他」のメニューへ移す。
-
-### ホームのタブ
-
-- ホームの上のタブ（`TimelineTab`）は、設定の「タイムラインのタブ」でアカウントごとに選んで並べる。サーバーやロールが止めているタイムラインのタブは、選んであっても出さない（`TimelineTab.shown`）。
-- 設定を変えるとすぐホームに反映する（`TimelinePagerViewController.setPages`）。残るタブの一覧は読み込んだものも位置もそのままで、外したタブの一覧は位置を保存して捨てる。
-- タブの id は、一覧の保存した位置のファイル名とアクセシビリティ ID（`timeline.<id>`）にもなる。すべてのノートのタブは、設定ができる前と同じくタイムラインの種類の名前（`home` など）。
-- メディアのタブは、タブでは山のマーク（`MediaMark`）とタイムラインの名前で短く出す。設定と VoiceOver では「〜のメディア」。
-- メディアのタブは Misskey の `withFiles` で絞る。受け付けないエンドポイント（ハイライトの `notes/featured`、アンテナの `antennas/notes`）は、取得したページからアプリで絞る（`NotesWithFilesSource`）。
-- リストとアンテナもタブにできる。保存するのは id と名前で、タブの id は `list.<id>` / `antenna.<id>`（名前が変わっても同じ）。どれがあるかは取得するまで分からないので、`shown` では外さない。起動時と設定の画面で一覧を取得し、名前を今のものにして、消されたものを外す（`TimelineTab.reconciled`）。
-- リストとアンテナの作成・編集は Web 版に任せる。アプリでは、ドロワー（レールでは「その他」）の「リスト」「アンテナ」から開くことと、ユーザーのプロフィールの「…」の「リスト」でメンバーを付け外しすることだけをする。リストが1つもなければ「…」に「リスト」は出さない。
-
-### 一覧の更新方針
-
-- `TimelineSource.refreshPolicy` の標準は `.replace`。更新に成功したら最新の先頭1ページで一覧を置き換え、ページングをやり直す。プロフィールの全タブ、ブックマーク・いいね、検索結果、ハイライト、通知はこの方針。
-- ホーム・ローカル・ソーシャル・グローバルの時系列TLとリスト・アンテナ（メディアだけのタブも）だけ `.preserveHistory`。読み込み済みの履歴を残して新着と変更を取り込み、未取得の区間は gap として埋める。永続スナップショットもこの方針のTLだけに付ける。
-- 更新方針と画面のメモリ保持は別。タブ移動や詳細画面から戻るだけでは一覧を作り直さない。アプリ内のノート削除・リノート解除は共通の削除通知で反映し、ブックマーク・いいね（リアクション）の解除はそれぞれの一覧からだけ行を即時除去する。追加や解除失敗時の復元は、該当一覧を表示中ならサーバーへの保存を待ってから位置を保ったまま更新し、非表示なら戻ったときに更新する。
-- 更新中に頼まれた更新は捨てずに、いまの更新が終わってからもう一度行う（頼んだ理由が、いまの更新を始めた後に起きたことかもしれないため）。
-- 位置を保つ更新（復元した一覧の追いつき、リノートの後）の最中に、位置を保たない更新（引っ張って更新、ホームのタップ）を頼まれたら、いまの更新も位置を保たない。上端にいれば新着をそのまま先頭に見せる。最新を見たいと操作で示しているため。
-- 引っ張って更新は、1回のドラッグで1回まで。`PullToRefresh`（プロフィールは `ProfileViewController`）はドラッグの始まりで構え、更新を始めたら外す。内容が上端に戻ったかどうかでは構え直さない。更新の結果で一覧が指の下の内容を動かすことがあり、位置で判断すると1回の引っ張りで更新とハプティックが何度も起きる。
-- 置き換えた一覧は先頭から見せるが、すでに上端にいる（引っ張って上端を越えている）ときは動かさない。指で引っ張っている内容を引き戻さないため。
-
-### 一覧の行の変化と、行の上のアニメーション
-
-- 一覧は二段で持つ。`TimelineViewController` の `entries` が一覧の中身で、削除・追加・更新の結果はすべてすぐここに入る。何を持っているか（`contains`）や次に何を取得するかの判断もここを読む。画面に出ている行は `presented` で、`presentEntries()` だけが `entries` に追いつかせる。行の出入り・位置・高さ・セルの中身が画面上で変わるのはここ一か所で、変更の種類（削除・末尾への追加・先頭への追加など）は差分から判断する。
-- `presented` はデータソースが UIKit に答える行そのもの。行を増減させるのは UIKit に伝えるのと同時だけにする: `reloadData()` の直前か、`performBatchUpdates` のブロックの中（レイアウトの高さも同じブロックで変える）。UIKit は更新前の行をブロックの前に読むが、`reloadData()` 後にまだレイアウトされていない一覧（画面外の一覧など）ではそのとき初めて読むため、先に差し替えると更新前の件数が新しい件数になって `Invalid batch updates` で落ちる。`TimelineTestSupport` はウインドウなしで間にレイアウトを挟まずに動かすので、一覧のテストはこの条件を常に通る。テスト側で reload を消化して隠さないこと。
-- 行の上で何かを再生している間（ボタンをタップしたときのアニメーションなど）は `ListHold` で一覧を止める。止めている間は行の出入り・並び・高さが変わらず、同じ高さのままの中身の更新（ボタン横の数など）だけがその場で反映される。`entries` は変わり続け、残りの表示は止め終わったときにまとめて追いつく。再生中のセルは入れ替わらないので、セル同士でアニメーションを引き継ぐ必要はない。新しくアニメーションを足すときも、`ListHold` を取れば一覧の変化を待たせられる。詳細画面（`NoteDetailViewController`）も同じ `ListHold` で行を止める。
-- ボタンへの反応の起点（`NoteServices` の `bookmarkTapped` / `renoteTapped` の `willChange`）は、状態が変わる前に呼ぶ。一覧を止めてから変更が届くようにするため。
-
-### ローカルの Misskey（本物のサーバー）
-
-偽サーバー（`scripts/mock_misskey.py`。UI テスト用）では確かめられないこと（実際の API の挙動、投稿・リアクション・通知など）は、Docker で手元に立てた本物の Misskey で試します。Docker（OrbStack など）が必要です。
+Mock server（`scripts/mock_misskey.py`。UI テスト用）では確かめられないこと（実際の API の挙動、投稿・リアクション・通知など）は、Docker で手元に立てた本物の Misskey で試すことができます。Docker（OrbStack など）が必要です。
 
 ```sh
 scripts/local_misskey.py up        # 起動。初回はセットアップとテストデータの投入も（30秒ほど）
@@ -90,14 +43,7 @@ scripts/local_misskey.py post      # 新着ノートを作る（引っ張って�
 scripts/local_misskey.py notify    # @hibari に通知を作る（ノートへのリアクション・リノート・返信・引用、メンション、フォロー。--as hibari_sub）
 ```
 
-- サーバーは `http://localhost:3000`（公式イメージの Misskey 2026.9.1。設定は `scripts/local_misskey/`）。Web UI も Mac のブラウザでそのまま開ける。ログは `docker compose -f scripts/local_misskey/compose.yml logs -f web`
-- アカウント（パスワードはすべて `hibari`）
-  - `@hibari`: アプリで使うメイン。@alice @bob @carol @hibari_sub をフォロー
-  - `@hibari_sub`: アカウント切り替え用。@bob だけフォロー
-  - `@alice` `@bob`（猫） `@carol`、`@dave`（誰にもフォローされていないので @hibari のホームTLには出ない）、`@newsbot`（bot）
-  - `@admin`: 管理者（Web のコントロールパネル用）
-- ノートの検索は、Misskey の標準では許されていないので、セットアップで標準のロールに許可している（`canSearchNotes`）。トレンドは最近の投稿のハッシュタグから作られるので、複数のアカウントで `post --as alice --text "#ねこ"` などとすると出る
-- テストデータ（`scripts/local_misskey.py` の `seed()`）: ノート約100件。MFM、カスタム絵文字（通常・横長・アニメーション）、画像（1〜4枚、縦長・パノラマ、代替テキスト）、GIF、動画、センシティブ、CW、投票、リノート、引用、返信のスレッド、メンション、ハッシュタグ、長文、公開範囲（フォロワー・ホーム・ダイレクト）、リアクション、リンク（URL プレビューの各種カードと、カードが出ない場合）。画像と動画は Misskey のコンテナの ffmpeg で生成するので何もダウンロードしない。日時はすべて投入した時刻（API で過去の日時は指定できない）
+- サーバーは `http://localhost:3000`。設定は `scripts/local_misskey/`。Web UI も Mac のブラウザでそのまま開ける。ログは `docker compose -f scripts/local_misskey/compose.yml logs -f web`
 
 シミュレータから接続する
 1. アプリのログイン画面（2つめ以降はドロワーの「⋯」→「アカウントを追加」）でサーバーに `http://localhost:3000` を入れる（起動引数 `-HibariSignInServer http://localhost:3000` で初期値にもできる）
@@ -106,20 +52,11 @@ scripts/local_misskey.py notify    # @hibari に通知を作る（ノートへ�
    - 開いた画面で Misskey にログイン（@hibari / `hibari`）して「許可」する。実機では Safari のログインが共有されるので、Safari でログイン済みなら許可だけになるが、シミュレータでは共有されない
 - `down` / `up` ではデータもトークンも残るので、一度ログインすればそのまま使える。`reset` するとトークンも無効になり、アプリはログインし直しを求める
 
-外部との隔離（ほかのサーバーに影響しない・連合しない）
-- Misskey・PostgreSQL・Redis は外への経路がない Docker ネットワーク（`internal: true`）にだけつながっている。Misskey はほかのホストに接続できず DNS も引けないので、連合の配送・リモートの取得は失敗する。外側のネットワークにもつながるのはポートを公開する nginx（`proxy`）だけで、Misskey への中継しかしない
-- URL プレビューが取れるのは、同じネットワークの中だけにあるテスト用のページ（`sites`。`scripts/local_misskey/sites/` を `news.hibari.test` などのホスト名で配る nginx。画像はセットアップで作る）だけ。Misskey がプライベートアドレスから取得できるのはこのコンテナのアドレスだけ（`misskey.yml` の `allowedPrivateNetworks`）。ノートに `http://news.hibari.test/articles/desk-rack` などと書けばカードになる
-- ポートは 127.0.0.1 にだけ公開し、サーバーの URL も `localhost` なので、LAN やインターネットからは届かず、ほかのサーバーから名指しもできない
-- サーバー設定の連合も「なし」（`federation: none`）。WebFinger・ActivityPub のエンドポイントは 403 を返す
-- そのため実機からは使えない。実機で使うには URL を Mac の LAN 上の名前にしてポートを LAN に開けることになり、そのぶん隔離が弱まる
+外部と隔離された Docker ネットワーク（127.0.0.1 のみ公開、federation: none）で動くため外部サーバーとは連合しない（URL プレビューは内部の http://news.hibari.test/... のみ取得可）
 
 ## リリース
 
-App Store への提出は `scripts/release.py` で行う。archive とアップロードは Xcode に追加した Apple ID（設定 → Accounts）で署名し、それ以外（バージョンの作成・リリースノート・提出）は App Store Connect API のキー（Team キー、App Manager 以上）で行う。xcodebuild に API キーを渡すとクラウド管理の配布証明書で署名しようとするが、このキーにはその権限がない。
-
-- キー: `~/.appstoreconnect/private_keys/AuthKey_<Key ID>.p8`
-- Issuer ID: `~/.appstoreconnect/issuer_id`（1行。環境変数 `ASC_ISSUER_ID` でも可）
-- どちらもリポジトリには置かない
+App Store への提出は `scripts/release.py` で行う。
 
 ```sh
 scripts/release.py status                 # ストアのバージョンとビルドの状態
@@ -128,7 +65,7 @@ scripts/release.py submit 1.2             # 審査に提出する（release に 
 ```
 
 - リリースノート（「このバージョンの新機能」）は `release-notes/<バージョン>/<ロケール>.txt`。ストアのローカライズ（いまは `ja` のみ）ごとに1つ必要で、足りなければアップロードの前に止まる
-- リリースノートは利用者向けに書く。技術的な詳細は書かず、何がよくなったかを短い箇条書きにする。対象は前のリリースのタグからの変更（`git log v1.1..`）。バージョンを上げたコミットの後にも、前のリリースのビルドに入った修正があることがある
+- リリースノートは利用者向けに書く。技術的な詳細は書かず、何がよくなったかを短い箇条書きにする。対象は前のリリースのタグからの変更（`git log v1.1..`）
 - リリースのタグは `v1.2` の形（注釈付き）で、審査に出したビルドを作ったコミットに付ける。`submit` が付ける（push はしない）
 - `release`（`bump` と `upload`）は、`release-notes/` 以外にコミットしていない変更があると止まる。ビルドが HEAD そのものになるように。バージョンを上げた `project.pbxproj` は `chore: bump version to 1.2 (3)` としてコミットする
 - 途中で止まったら、残りの手順だけを実行し直す（`upload` / `prepare 1.2` / `submit 1.2`）。`release` をやり直すとビルド番号がもう一度上がる

@@ -152,6 +152,7 @@ final class RootViewController: UIViewController {
         }
         rail.onSelect = { [weak self] tab in self?.tabTapped(tab) }
         rail.onShowBookmarks = { [weak self] in self?.showBookmarks() }
+        rail.onShowLists = { [weak self] kind in self?.showLists(kind) }
         rail.onShowSettings = { [weak self] in self?.showSettings() }
         rail.onBack = { [weak self] in self?.selectedStack.popViewController(animated: true) }
         rail.composeButton.addAction(UIAction { [weak self] _ in
@@ -471,6 +472,14 @@ final class RootViewController: UIViewController {
         let stack = selectedStack
         stack.popToRootViewController(animated: false)
         stack.pushViewController(BookmarksViewController(services: services), animated: false)
+    }
+
+    /// The account's lists or antennas, on top of the tab's root (without the push
+    /// animation, like the profile).
+    func showLists(_ kind: ListsViewController.Kind) {
+        let stack = selectedStack
+        stack.popToRootViewController(animated: false)
+        stack.pushViewController(ListsViewController(kind: kind, services: services), animated: false)
     }
 
     /// The account's followers or followees, on top of the tab's root (without the push

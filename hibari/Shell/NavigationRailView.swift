@@ -35,6 +35,9 @@ final class NavigationRailView: UIView {
         }
     }
     var onShowBookmarks: (() -> Void)?
+    var onShowLists: ((ListsViewController.Kind) -> Void)? {
+        didSet { updateMenu() }
+    }
     var onShowSettings: (() -> Void)?
     /// The back button was tapped.
     var onBack: (() -> Void)?
@@ -230,10 +233,16 @@ final class NavigationRailView: UIView {
         avatarButton.accessibilityTraits = selected == .profile ? [.button, .selected] : .button
     }
 
-    /// The items that don't fit, then the account list and the settings.
+    /// The items that don't fit, the lists and antennas, then the account list and the
+    /// settings.
     private func updateMenu() {
         let moved = overflow.map { item in
             UIAction(title: item.label, image: item.icon(selected: false)) { [weak self] _ in self?.tapped(item) }
+        }
+        let lists: [UIMenuElement] = onShowLists == nil ? [] : [ListsViewController.Kind.lists, .antennas].map { kind in
+            UIAction(title: kind.title, image: UIImage(named: kind.icon)?.withRenderingMode(.alwaysTemplate)) {
+                [weak self] _ in self?.onShowLists?(kind)
+            }
         }
         var rest: [UIMenuElement] = []
         if onShowAccounts != nil {
@@ -246,6 +255,7 @@ final class NavigationRailView: UIView {
             self?.onShowSettings?()
         })
         buttons[.more]?.menu = UIMenu(children: [UIMenu(options: .displayInline, children: moved),
+                                                 UIMenu(options: .displayInline, children: lists),
                                                  UIMenu(options: .displayInline, children: rest)])
     }
 

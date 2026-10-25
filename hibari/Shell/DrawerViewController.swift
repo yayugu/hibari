@@ -11,6 +11,8 @@ final class DrawerViewController: UIViewController {
     var onShowFollows: ((FollowList) -> Void)?
     /// Tapped "ブックマーク".
     var onShowBookmarks: (() -> Void)?
+    /// Tapped "リスト" or "アンテナ".
+    var onShowLists: ((ListsViewController.Kind) -> Void)?
     /// Tapped "設定".
     var onShowSettings: (() -> Void)?
 
@@ -85,6 +87,8 @@ final class DrawerViewController: UIViewController {
         let menu: [(title: String, icon: String, identifier: String, action: () -> Void)] = [
             ("プロフィール", "Profile", "drawer.menu.profile", { [weak self] in self?.onShowProfile?() }),
             ("ブックマーク", "Bookmark", "drawer.menu.bookmarks", { [weak self] in self?.onShowBookmarks?() }),
+            ("リスト", "List", "drawer.menu.lists", { [weak self] in self?.onShowLists?(.lists) }),
+            ("アンテナ", "Antenna", "drawer.menu.antennas", { [weak self] in self?.onShowLists?(.antennas) }),
         ]
         for item in menu {
             var configuration = UIButton.Configuration.plain()

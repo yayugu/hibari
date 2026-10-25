@@ -142,6 +142,10 @@ final class AppRouter {
             self?.root?.showBookmarks()
             self?.container?.close(animated: true)
         }
+        drawer.onShowLists = { [weak self] kind in
+            self?.root?.showLists(kind)
+            self?.container?.close(animated: true)
+        }
         drawer.onShowSettings = { [weak self] in
             self?.root?.showSettings()
             self?.container?.close(animated: true)

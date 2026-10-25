@@ -147,6 +147,10 @@ enum MisskeyAPIError: Error, LocalizedError {
                 "サーバーでエラーが起きました（\(status)）"
             } else if let code = body.code, code.hasSuffix("TL_DISABLED") {
                 "このタイムラインは使えません"
+            } else if body.code == "NO_SUCH_LIST" {
+                "リストが見つかりません。削除された可能性があります"
+            } else if body.code == "NO_SUCH_ANTENNA" {
+                "アンテナが見つかりません。削除された可能性があります"
             } else if body.code == "PERMISSION_DENIED" {
                 "この操作の権限がありません。ログインし直してください"
             } else if let message = body.message {

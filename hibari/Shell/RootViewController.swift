@@ -168,6 +168,7 @@ final class RootViewController: UIViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(settingsDidChange),
                                                name: AppSettings.didChange, object: nil)
         updateBadges()
+        updateListAndAntennaTabs()
 
         #if PERF
         let showsHUD = AppSettings.showsPerfHUD || AppSettings.benchmarkMode != nil
@@ -411,6 +412,22 @@ final class RootViewController: UIViewController {
         }
     }
 
+    private func updateListAndAntennaTabs() {
+        let account = session.account
+        let tabs = AppSettings.timelineTabs(for: account)
+        let hasLists = tabs.contains { if case .list = $0.source { true } else { false } }
+        let hasAntennas = tabs.contains { if case .antenna = $0.source { true } else { false } }
+        guard let client = session.client, hasLists || hasAntennas else { return }
+        Task {
+            async let lists = hasLists ? try? client.userLists() : nil
+            async let antennas = hasAntennas ? try? client.antennas() : nil
+            let current = TimelineTab.reconciled(tabs, lists: await lists, antennas: await antennas)
+            guard current != tabs, AppSettings.timelineTabs(for: account) == tabs else { return }
+            AppSettings.setTimelineTabs(current, for: account)
+            NotificationCenter.default.post(name: AppSettings.didChange, object: nil)
+        }
+    }
+
     @objc private func settingsDidChange() {
         guard let pages = session.timelines(for: AppSettings.timelineTabs(for: session.account)) else { return }
         home.setPages(pages)
@@ -469,7 +486,8 @@ final class RootViewController: UIViewController {
     func showSettings() {
         let stack = selectedStack
         stack.popToRootViewController(animated: false)
-        let settings = SettingsViewController(account: session.account, timelineKinds: session.timelineKinds) {
+        let settings = SettingsViewController(account: session.account, timelineKinds: session.timelineKinds,
+                                              client: session.client) {
             [weak self] in self?.onSignOut?()
         }
         stack.pushViewController(settings, animated: false)

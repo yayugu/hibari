@@ -4,10 +4,16 @@ struct APITimelineSource: NoteTimelineSource {
     let client: MisskeyClient
     let endpoint: String
     /// Sent with every page (the direct notes: `notes/mentions` with `visibility`).
-    var parameters: [String: any Sendable] = [:]
+    var parameters: [String: any Sendable]
+    let refreshPolicy: RefreshPolicy
 
-    var refreshPolicy: RefreshPolicy {
-        TimelineKind.allCases.first { $0.endpoint == endpoint }?.refreshPolicy ?? .replace
+    init(client: MisskeyClient, endpoint: String, parameters: [String: any Sendable] = [:],
+         refreshPolicy: RefreshPolicy? = nil) {
+        self.client = client
+        self.endpoint = endpoint
+        self.parameters = parameters
+        self.refreshPolicy = refreshPolicy
+            ?? TimelineKind.allCases.first { $0.endpoint == endpoint }?.refreshPolicy ?? .replace
     }
 
     func notes(until untilID: String?, limit: Int) async throws -> [Note] {

@@ -4,8 +4,8 @@ import UIKit
 final class TimelineTabsViewController: UIViewController {
     private let form: UIHostingController<TimelineTabsView>
 
-    init(account: Account, kinds: [TimelineKind]) {
-        form = UIHostingController(rootView: TimelineTabsView(account: account, kinds: kinds))
+    init(account: Account, kinds: [TimelineKind], client: MisskeyClient? = nil) {
+        form = UIHostingController(rootView: TimelineTabsView(account: account, kinds: kinds, client: client))
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -24,11 +24,15 @@ struct TimelineTabsView: View {
     let account: Account
     /// The timelines the account has.
     let kinds: [TimelineKind]
+    let client: MisskeyClient?
     @State private var tabs: [TimelineTab]
+    @State private var lists: [UserList]?
+    @State private var antennas: [Antenna]?
 
-    init(account: Account, kinds: [TimelineKind]) {
+    init(account: Account, kinds: [TimelineKind], client: MisskeyClient? = nil) {
         self.account = account
         self.kinds = kinds
+        self.client = client
         _tabs = State(initialValue: TimelineTab.shown(AppSettings.timelineTabs(for: account), of: kinds))
     }
 
@@ -44,28 +48,12 @@ struct TimelineTabsView: View {
             } header: {
                 Text("表示するタブ")
             }
-            if !others.isEmpty {
-                Section {
-                    // Apart from the shown ones: a row that moves over keeps the look it had
-                    // here, without the controls to remove and reorder.
-                    ForEach(others, id: \.choiceID) { tab in
-                        Button {
-                            withAnimation { tabs.append(tab) }
-                        } label: {
-                            Label {
-                                TabTitle(tab: tab)
-                            } icon: {
-                                Image(systemName: "plus.circle.fill")
-                                    .foregroundStyle(.white, .green)
-                            }
-                        }
-                        .accessibilityLabel("\(tab.title)を追加")
-                    }
-                } header: {
-                    Text("追加できるタブ")
-                } footer: {
-                    Text("「〜のメディア」は、画像や動画などのファイルが付いたノートだけを表示します")
-                }
+            additions(TimelineTab.choices(of: kinds), header: "追加できるタブ")
+            if let lists {
+                additions(TimelineTab.choices(of: lists), header: "追加できるリスト")
+            }
+            if let antennas {
+                additions(TimelineTab.choices(of: antennas), header: "追加できるアンテナ")
             }
             Section {
                 Button("最初の状態に戻す") {
@@ -80,14 +68,52 @@ struct TimelineTabsView: View {
             AppSettings.setTimelineTabs(tabs, for: account)
             NotificationCenter.default.post(name: AppSettings.didChange, object: nil)
         }
+        .task { await loadListsAndAntennas() }
     }
 
-    private var others: [TimelineTab] {
-        TimelineTab.choices(of: kinds).filter { !tabs.contains($0) }
+    @ViewBuilder
+    private func additions(_ choices: [TimelineTab], header: String) -> some View {
+        let shown = Set(tabs.map(\.id))
+        let others = choices.filter { !shown.contains($0.id) }
+        if !others.isEmpty {
+            Section {
+                // Apart from the shown ones: a row that moves over keeps the look it had
+                // here, without the controls to remove and reorder.
+                ForEach(others, id: \.choiceID) { tab in
+                    Button {
+                        withAnimation { tabs.append(tab) }
+                    } label: {
+                        Label {
+                            TabTitle(tab: tab)
+                        } icon: {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(.white, .green)
+                        }
+                    }
+                    .accessibilityLabel("\(tab.title)を追加")
+                }
+            } header: {
+                Text(header)
+            }
+        }
     }
 
     private var defaults: [TimelineTab] {
         TimelineTab.shown(TimelineTab.defaults, of: kinds)
+    }
+
+    /// Also renames the shown ones and takes out the deleted.
+    private func loadListsAndAntennas() async {
+        guard let client else { return }
+        async let fetchedLists = try? client.userLists()
+        async let fetchedAntennas = try? client.antennas()
+        let (lists, antennas) = await (fetchedLists, fetchedAntennas)
+        withAnimation {
+            self.lists = lists
+            self.antennas = antennas
+            let current = TimelineTab.shown(TimelineTab.reconciled(tabs, lists: lists, antennas: antennas), of: kinds)
+            if current != tabs { tabs = current }
+        }
     }
 }
 

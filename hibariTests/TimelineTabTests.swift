@@ -64,6 +64,55 @@ struct TimelineTabTests {
         #expect(source.refreshPolicy == .replace)
     }
 
+    @Test func listAndAntennaTabsKeepTheirIDsAsTheyAreRenamed() throws {
+        let list = TimelineTab(UserList(id: "l1", name: "友だち"))
+        let antenna = TimelineTab(Antenna(id: "a1", name: "画像"), mediaOnly: true)
+        let saved = try JSONEncoder().encode([list, antenna])
+        #expect(try JSONDecoder().decode([TimelineTab].self, from: saved) == [list, antenna])
+        #expect([list, antenna].map(\.id) == ["list.l1", "antenna.a1.media"])
+        #expect([list, antenna].map(\.title) == ["友だち", "画像のメディア"])
+        #expect(TimelineTab(UserList(id: "l1", name: "家族")).id == list.id)
+        #expect(TimelineTab.choices(of: [UserList(id: "l1", name: "友だち"), UserList(id: "l2", name: "仕事")]).map(\.id)
+                == ["list.l1", "list.l2", "list.l1.media", "list.l2.media"])
+    }
+
+    @Test func listsAndAntennasStayUntilTheyAreKnownToBeGone() {
+        let list = TimelineTab(UserList(id: "l1", name: "友だち"))
+        let gone = TimelineTab(UserList(id: "l2", name: "旧"))
+        let antenna = TimelineTab(Antenna(id: "a1", name: "画像"))
+        let tabs = [list, TimelineTab(.home), gone, antenna, TimelineTab(UserList(id: "l1", name: "友だち2"))]
+        // Which there are is not known at launch: none is left out, only repeats.
+        #expect(TimelineTab.shown(tabs, of: [.home]) == [list, TimelineTab(.home), gone, antenna])
+        #expect(TimelineTab.shown([list], of: [.home]) == [list])
+
+        let lists = [UserList(id: "l1", name: "家族")]
+        #expect(TimelineTab.reconciled([list, TimelineTab(.home), gone, antenna], lists: lists, antennas: nil)
+                == [TimelineTab(UserList(id: "l1", name: "家族")), TimelineTab(.home), antenna])
+        #expect(TimelineTab.reconciled([list, antenna], lists: nil, antennas: []) == [list])
+    }
+
+    @Test func listAndAntennaTabsAskForTheirNotes() async throws {
+        let asked = Locked<[String]>([])
+        let client = client { request, body in
+            let parameters = body.filter { $0.key != "i" && $0.key != "limit" }
+                .map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " ")
+            asked.withLock { $0.append((request.url?.path ?? "") + " " + parameters) }
+            return .json([])
+        }
+        let list = UserList(id: "l1", name: "友だち")
+        let antenna = Antenna(id: "a1", name: "画像")
+        let sources = [TimelineTab(list), TimelineTab(list, mediaOnly: true), TimelineTab(antenna),
+                       TimelineTab(antenna, mediaOnly: true)].map { $0.timeline(client: client).source }
+        for source in sources {
+            _ = try await source.page(until: nil, limit: 20)
+            #expect(source.refreshPolicy == .preserveHistory)
+        }
+        // `antennas/notes` takes no `withFiles`: its notes with files are picked out here.
+        #expect(asked.withLock { $0 } == ["/api/notes/user-list-timeline listId=l1",
+                                          "/api/notes/user-list-timeline listId=l1 withFiles=1",
+                                          "/api/antennas/notes antennaId=a1", "/api/antennas/notes antennaId=a1"])
+    }
+
     @Test func changingTheTabsKeepsTheTimelinesThatStay() throws {
         let client = client()
         let services = try TimelineTestSupport.services(client: client)

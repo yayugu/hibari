@@ -5,13 +5,14 @@ final class SettingsViewController: UIViewController {
     private let form: UIHostingController<SettingsView>
     
     /// `timelineKinds`: the ones the account has, for the tabs (none: the tabs cannot change).
-    init(account: Account, timelineKinds: [TimelineKind] = [], onSignOut: @escaping () -> Void = {}) {
+    init(account: Account, timelineKinds: [TimelineKind] = [], client: MisskeyClient? = nil,
+         onSignOut: @escaping () -> Void = {}) {
         form = UIHostingController(rootView: SettingsView(account: account, onSignOut: onSignOut))
         super.init(nibName: nil, bundle: nil)
         if !timelineKinds.isEmpty {
             form.rootView.onShowTimelineTabs = { [weak self] in
                 self?.navigationController?.pushViewController(
-                    TimelineTabsViewController(account: account, kinds: timelineKinds), animated: true)
+                    TimelineTabsViewController(account: account, kinds: timelineKinds, client: client), animated: true)
             }
         }
     }

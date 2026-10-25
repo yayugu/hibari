@@ -68,16 +68,16 @@ struct MediaViewerTests {
 
         page.isCurrent = true
         page.zoomScale = 2
+        let sharpening = try #require(page.sharpening)
         page.isCurrent = false
-        try await Task.sleep(for: .milliseconds(300))
+        await sharpening.value
         #expect(pixelWidth(of: page) == fitted)
     }
 
     @Test func onlyTheCurrentPageAnimates() async throws {
         let page = try await page(Self.animated, isCurrent: false)
         let firstFrame = try #require(page.imageView.image)
-        try await Task.sleep(for: .milliseconds(150))
-        #expect(page.imageView.image === firstFrame, "a neighbour shows its first frame")
+        #expect(!page.isAnimating, "a neighbour shows its first frame")
 
         page.isCurrent = true
         await wait { page.imageView.image !== firstFrame }
@@ -85,8 +85,7 @@ struct MediaViewerTests {
 
         page.isCurrent = false
         #expect(page.imageView.image === firstFrame)
-        try await Task.sleep(for: .milliseconds(150))
-        #expect(page.imageView.image === firstFrame, "no more frames once it is left")
+        #expect(!page.isAnimating, "no more frames once it is left")
     }
 
     @Test func pagesLetGoOfTheirImagesAndLoadThemAgain() async throws {
@@ -96,8 +95,9 @@ struct MediaViewerTests {
         #expect(!page.isLoaded && page.imageView.image == nil)
 
         page.load(scale: page.traitCollection.displayScale)
+        let preparing = try #require(page.preparing)
         page.unload()
-        try await Task.sleep(for: .milliseconds(300))
+        await preparing.value
         #expect(!page.isLoaded && page.imageView.image == nil)
 
         await withCheckedContinuation { continuation in

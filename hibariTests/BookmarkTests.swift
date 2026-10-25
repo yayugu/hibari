@@ -166,8 +166,7 @@ struct BookmarkControllerTests {
         let controller = controller(log: log, errors: ["notes/favorites/create": "ALREADY_FAVORITED"])
         let note = try note()
         _ = try await changes(of: controller, count: 1) { controller.toggle(note) }
-        try await log.wait(for: 1)
-        try await Task.sleep(for: .milliseconds(50))
+        await withCheckedContinuation { continuation in controller.whenSaved(note.id) { continuation.resume() } }
         #expect(log.all == ["notes/favorites/create n1"], "no need to ask")
         #expect(controller.isBookmarked(note))
     }

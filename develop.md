@@ -14,8 +14,9 @@ Debug / Perf 構成は Bundle ID の末尾に `.debug` が付き（表示名は�
 # 1. ビルドして実行（Xcode で hibari スキームを Run でも可）
 xcodebuild -scheme hibari -destination 'platform=iOS Simulator,name=iPhone 17' build
 
-# 2. 普段のテスト（unit test）
-xcodebuild -scheme hibari -destination 'platform=iOS Simulator,name=iPhone 17' test
+# 2. 普段のテスト（unit test。iPhone 17 で実行する）
+python3 scripts/test_unit.py
+# 一部だけ: python3 scripts/test_unit.py -only-testing:hibariTests/TimelineTabTests
 
 # 3. UI テスト（別スキーム）
 python3 scripts/test_ui.py
@@ -30,6 +31,9 @@ scripts/perf.sh
 ### テストの選び方
 
 - **unit test にする:** 入力と期待結果を画面を起動せずに確かめられる処理。モデルの変換、API のリクエスト・レスポンス、投稿やリアクションの状態遷移、アカウント選択、レイアウト計算などを `hibariTests` で検証する。通信は `StubURLProtocol` などで差し替え、実サーバーや固定ポートには依存させない。
+- unit test は `scripts/test_unit.py` から iPhone 17 で実行する。結果が端末で変わらないように書くが、確かめるのはこの端末だけにする。
+- システムの画面（共有シートなど）は表示しない。表示すると別プロセスのサービスを待つことになり、表示した後の状態も端末で変わる（iPhone では共有シートのポップオーバーの位置が置き換わる）。アプリが渡す設定を、表示する前に確かめる。
+- 決まった時間だけ待たない。状態が変わるのを待つ。「何も起きない」ことを確かめるときは、それを起こしうる処理（`Task` など）が終わるのを待ってから確かめる。
 - **unit test にしない:** 実際のタップ・スワイプ、画面遷移、システム画面との受け渡し。アプリを操作しないと確認できない導線だけを `hibariUITests` で短く検証する。モデルや API の結果、状態の組み合わせを UI テストで繰り返し確認しない。
 - UI テストを追加する前に、表示したい状態を unit test で再現できないか確認する。UI が必要なら、要素はアクセシビリティ ID で探し、時間待ちではなく状態を待つ。並列実行を前提に、テスト同士で同じ mock の可変状態を取り合わないようにする。
 - UI テストは極めて実行が遅いため開発のボトルネックになっている。追加した場合はcommit前に残す価値があるか再検討して、なかったら削ること

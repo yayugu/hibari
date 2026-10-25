@@ -330,15 +330,20 @@ extension NoteServices {
     }
 
     func share(_ note: Note, from controller: UIViewController) {
-        guard let url = webURL(of: note) else { return }
+        guard let sheet = shareSheet(for: note, from: controller.view) else { return }
+        controller.present(sheet, animated: true)
+    }
+
+    /// On iPad, a popover in the middle of `view`, without an arrow.
+    func shareSheet(for note: Note, from view: UIView) -> UIActivityViewController? {
+        guard let url = webURL(of: note) else { return nil }
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         if let popover = sheet.popoverPresentationController {
-            popover.sourceView = controller.view
-            popover.sourceRect = CGRect(x: controller.view.bounds.midX, y: controller.view.bounds.midY,
-                                        width: 0, height: 0)
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
             popover.permittedArrowDirections = []
         }
-        controller.present(sheet, animated: true)
+        return sheet
     }
 
     func menu(for note: Note, from controller: UIViewController) -> UIMenu {

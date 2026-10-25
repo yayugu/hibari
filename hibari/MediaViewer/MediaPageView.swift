@@ -15,8 +15,10 @@ final class MediaPageView: UIScrollView, UIScrollViewDelegate {
     private(set) var isLoaded = false
     private var loadGeneration = 0
     private var loadTask: ImageTask?
+    /// Waits for the file before `loadTask`.
+    private(set) var preparing: Task<Void, Never>?
     private var fittedImage: UIImage?
-    private var sharpening: Task<Void, Never>?
+    private(set) var sharpening: Task<Void, Never>?
     private var isAnimated: Bool?
     private var animation: AnimationToken?
     private var laidOutSize: CGSize = .zero
@@ -186,7 +188,7 @@ final class MediaPageView: UIScrollView, UIScrollViewDelegate {
         let generation = loadGeneration
         if imageView.image == nil { spinner.startAnimating() }
         let source = imagePipeline.source
-        Task { [weak self] in
+        preparing = Task { [weak self] in
             let ready = await source.prepare(url)
             guard let self, generation == self.loadGeneration else { return }
             guard ready else {
@@ -278,6 +280,8 @@ final class MediaPageView: UIScrollView, UIScrollViewDelegate {
             }
         }
     }
+
+    var isAnimating: Bool { animation != nil }
 
     func stopAnimation() {
         animation?.isStopped = true

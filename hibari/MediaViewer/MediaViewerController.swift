@@ -282,7 +282,8 @@ final class MediaViewerController: UIViewController {
     @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        share(currentPage, at: gesture.location(in: view))
+        guard let sheet = shareSheet(for: currentPage, at: gesture.location(in: view)) else { return }
+        present(sheet, animated: true)
     }
 
     @objc private func panned(_ gesture: UIPanGestureRecognizer) {
@@ -346,10 +347,11 @@ final class MediaViewerController: UIViewController {
         }
     }
 
-    private func share(_ page: MediaPageView, at point: CGPoint) {
+    /// On iPad, a popover from `point` in the view. nil before the image has loaded.
+    func shareSheet(for page: MediaPageView, at point: CGPoint) -> UIActivityViewController? {
         let item: Any
         if page.file.isVideo {
-            guard let url = page.file.url.flatMap(URL.init(string:)) else { return }
+            guard let url = page.file.url.flatMap(URL.init(string:)) else { return nil }
             item = url
         } else if let url = page.url, let file = imagePipeline.source.localFile(for: url),
                   let image = UIImage(contentsOfFile: file.path(percentEncoded: false)) {
@@ -357,14 +359,14 @@ final class MediaViewerController: UIViewController {
         } else if let image = page.imageView.image {
             item = ImageShareItem(image: image, title: page.file.name)
         } else {
-            return
+            return nil
         }
         let sheet = UIActivityViewController(activityItems: [item], applicationActivities: nil)
         if let popover = sheet.popoverPresentationController {
             popover.sourceView = view
             popover.sourceRect = CGRect(origin: point, size: .zero)
         }
-        present(sheet, animated: true)
+        return sheet
     }
 }
 

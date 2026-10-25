@@ -34,4 +34,15 @@ extension MisskeyClient {
     func antennas() async throws -> [Antenna] {
         try await request("antennas/list", as: LossyArray<Antenna>.self).elements
     }
+
+    /// A user already in the list counts as added.
+    func addUser(_ userID: String, toList listID: String) async throws {
+        do {
+            _ = try await data("users/lists/push", ["listId": listID, "userId": userID])
+        } catch MisskeyAPIError.server(_, let body) where body.code == "ALREADY_ADDED" {}
+    }
+
+    func removeUser(_ userID: String, fromList listID: String) async throws {
+        _ = try await data("users/lists/pull", ["listId": listID, "userId": userID])
+    }
 }

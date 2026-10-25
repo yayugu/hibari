@@ -113,6 +113,29 @@ struct TimelineTabTests {
                                           "/api/antennas/notes antennaId=a1", "/api/antennas/notes antennaId=a1"])
     }
 
+    @Test func listsComeWithTheirMembers() async throws {
+        let asked = Locked<[String]>([])
+        let client = client { request, body in
+            let path = request.url?.path ?? ""
+            asked.withLock { $0.append(path) }
+            switch path {
+            case "/api/users/lists/list":
+                return .json([["id": "l1", "name": "友だち", "userIds": ["u1"], "isPublic": false],
+                              ["id": "l2", "name": "空"], ["name": "壊れた"]])
+            case "/api/users/lists/push":
+                #expect(body["listId"] as? String == "l1" && body["userId"] as? String == "u1")
+                return .json(["error": ["code": "ALREADY_ADDED", "message": "already"]], status: 400)
+            default:
+                return .json(["error": ["code": "YOU_HAVE_BEEN_BLOCKED", "message": "blocked"]], status: 400)
+            }
+        }
+        let lists = try await client.userLists()
+        #expect(lists == [UserList(id: "l1", name: "友だち", userIds: ["u1"]), UserList(id: "l2", name: "空")])
+        try await client.addUser("u1", toList: "l1")
+        await #expect(throws: MisskeyAPIError.self) { try await client.removeUser("u1", fromList: "l1") }
+        #expect(asked.withLock { $0 } == ["/api/users/lists/list", "/api/users/lists/push", "/api/users/lists/pull"])
+    }
+
     @Test func changingTheTabsKeepsTheTimelinesThatStay() throws {
         let client = client()
         let services = try TimelineTestSupport.services(client: client)

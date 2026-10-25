@@ -151,6 +151,10 @@ enum MisskeyAPIError: Error, LocalizedError {
                 "リストが見つかりません。削除された可能性があります"
             } else if body.code == "NO_SUCH_ANTENNA" {
                 "アンテナが見つかりません。削除された可能性があります"
+            } else if body.code == "YOU_HAVE_BEEN_BLOCKED" {
+                "このユーザーにブロックされています"
+            } else if body.code == "TOO_MANY_USERS" {
+                "リストに入れられる人数の上限に達しています"
             } else if body.code == "PERMISSION_DENIED" {
                 "この操作の権限がありません。ログインし直してください"
             } else if let message = body.message {

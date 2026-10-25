@@ -59,6 +59,7 @@ final class ProfileViewController: UIViewController {
     required init?(coder: NSCoder) { fatalError() }
 
     private var isAccount: Bool { user.map(services.isAccount) ?? false }
+    private var lists: [UserList]?
 
     var currentTimeline: TimelineViewController? {
         timelines.indices.contains(currentIndex) ? timelines[currentIndex] : nil
@@ -127,6 +128,7 @@ final class ProfileViewController: UIViewController {
                                                name: NoteServices.didChangeRelation, object: services)
         configureContent()
         loadProfile()
+        loadLists()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -578,7 +580,8 @@ final class ProfileViewController: UIViewController {
                 guard let self else { return }
                 self.services.compose(to: self.profile?.user ?? user, from: self)
             }
-            elements.insert(UIMenu(options: .displayInline, children: [direct]), at: 0)
+            let lists = listsMenu(for: user)
+            elements.insert(UIMenu(options: .displayInline, children: [direct] + (lists.map { [$0] } ?? [])), at: 0)
         }
 
         guard let relation = profile?.relation, relation.isKnown, !isAccount else { return elements }
@@ -621,6 +624,62 @@ final class ProfileViewController: UIViewController {
         })
         elements.append(UIMenu(options: .displayInline, children: actions))
         return elements
+    }
+
+    private func loadLists() {
+        guard let client = services.client, !isAccount else { return }
+        Task { [weak self] in
+            guard let lists = try? await client.userLists() else { return }
+            self?.lists = lists
+        }
+    }
+
+    private func listsMenu(for user: User) -> UIMenu? {
+        guard let lists, !lists.isEmpty else { return nil }
+        return UIMenu(title: "リスト", image: UIImage(named: "List")?.withRenderingMode(.alwaysTemplate),
+                      children: lists.map { list in
+            UIAction(title: list.name, identifier: Self.listActionID(list.id), attributes: .keepsMenuPresented,
+                     state: list.userIds.contains(user.id) ? .on : .off) { [weak self] _ in
+                self?.toggle(user.id, in: list.id)
+            }
+        })
+    }
+
+    private static func listActionID(_ listID: String) -> UIAction.Identifier {
+        UIAction.Identifier("profile.list." + listID)
+    }
+
+    private func toggle(_ userID: String, in listID: String) {
+        guard let client = services.client, let list = lists?.first(where: { $0.id == listID }) else { return }
+        let adds = !list.userIds.contains(userID)
+        setMembership(adds, of: userID, in: listID)
+        Task { [weak self] in
+            do {
+                if adds {
+                    try await client.addUser(userID, toList: listID)
+                } else {
+                    try await client.removeUser(userID, fromList: listID)
+                }
+            } catch {
+                guard let self else { return }
+                setMembership(!adds, of: userID, in: listID)
+                services.failed(error, fallback: adds ? "リストに追加できませんでした" : "リストから外せませんでした")
+            }
+        }
+    }
+
+    private func setMembership(_ isMember: Bool, of userID: String, in listID: String) {
+        guard let index = lists?.firstIndex(where: { $0.id == listID }) else { return }
+        lists?[index].userIds.removeAll { $0 == userID }
+        if isMember { lists?[index].userIds.append(userID) }
+        let identifier = Self.listActionID(listID)
+        topBar.moreButton.contextMenuInteraction?.updateVisibleMenu { menu in
+            menu.replacingChildren(menu.children.map { element in
+                guard let action = element as? UIAction, action.identifier == identifier else { return element }
+                action.state = isMember ? .on : .off
+                return action
+            })
+        }
     }
 
     private func confirmBlock() {

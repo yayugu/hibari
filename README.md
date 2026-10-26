@@ -8,6 +8,7 @@
     </a>
   </p>
   <p><b><a href="https://apps.apple.com/jp/app/hibari-for-misskey/id6818066575">App Storeで入手（無料）</a></b></p>
+  <p><a href="https://misskey.io/@hibariapp">@hibariapp@misskey.io</a></p>
 </div>
 
 <br>

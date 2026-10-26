@@ -115,10 +115,7 @@ struct SettingsView: View {
 
 extension SettingsView {
     private static var version: String {
-        let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "-"
-        let build = info?["CFBundleVersion"] as? String ?? "-"
-        return "\(version) (\(build))"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "-"
     }
 
     private func link(_ title: String, _ url: URL, detail: String? = nil) -> some View {

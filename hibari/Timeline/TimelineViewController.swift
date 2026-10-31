@@ -747,6 +747,17 @@ final class TimelineViewController: UIViewController {
         }
     }
 
+    /// Refreshes until the note `noteID` (one the account just posted) is in, `attempts`
+    /// times at most a second apart: the server may not list it at once.
+    func refresh(until noteID: String, keepingPosition: Bool, attempts: Int = 3) {
+        refresh(keepingPosition: keepingPosition) { [weak self] in
+            guard let self, attempts > 1, !self.contains(noteID: noteID) else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                self.refresh(until: noteID, keepingPosition: keepingPosition, attempts: attempts - 1)
+            }
+        }
+    }
+
     func contains(noteID: String) -> Bool {
         entries.contains(noteID)
     }

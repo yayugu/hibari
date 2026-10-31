@@ -60,6 +60,7 @@ final class RootViewController: UIViewController {
     private var profile: ProfileViewController?
     private(set) var selectedTab = Tab.home
     private let bottomBar = BottomBarView()
+    private let composeButton = ComposeButton()
     private let rail = NavigationRailView()
     private var chrome = Chrome.bottomBar
     /// Under the status bar beside the side rail: it goes over both, so it reads against
@@ -138,6 +139,8 @@ final class RootViewController: UIViewController {
         statusBarBackdrop.isHidden = true
         view.addSubview(statusBarBackdrop)
         view.addSubview(bottomBar)
+        composeButton.accessibilityIdentifier = "home.compose"
+        view.addSubview(composeButton)
         rail.isHidden = true
         view.addSubview(rail)
         toastArea.isHidden = true
@@ -155,12 +158,16 @@ final class RootViewController: UIViewController {
         rail.onShowLists = { [weak self] kind in self?.showLists(kind) }
         rail.onShowSettings = { [weak self] in self?.showSettings() }
         rail.onBack = { [weak self] in self?.selectedStack.popViewController(animated: true) }
-        rail.composeButton.addAction(UIAction { [weak self] _ in
+        let compose = UIAction { [weak self] _ in
             guard let self else { return }
-            self.services.compose(from: self)
-        }, for: .touchUpInside)
+            self.services.compose(in: self.composeTarget ?? nil, from: self)
+        }
+        composeButton.addAction(compose, for: .touchUpInside)
+        rail.composeButton.addAction(compose, for: .touchUpInside)
         rail.setAccount(session.account)
         home.onBarsChange = { [weak self] progress in self?.barsDidChange(progress, in: .home) }
+        home.onPageChange = { [weak self] in self?.updateComposeButton() }
+        updateComposeButton()
         services.bookmarks.loadRecent()
         if let unread {
             NotificationCenter.default.addObserver(self, selector: #selector(unreadDidChange),
@@ -169,7 +176,7 @@ final class RootViewController: UIViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(settingsDidChange),
                                                name: AppSettings.didChange, object: nil)
         updateBadges()
-        updateListAndAntennaTabs()
+        updateListAntennaAndChannelTabs()
 
         #if PERF
         let showsHUD = AppSettings.showsPerfHUD || AppSettings.benchmarkMode != nil
@@ -191,6 +198,7 @@ final class RootViewController: UIViewController {
         stack.onScreensChange = { [weak self, weak stack] in
             guard let self, stack === self.selectedStack else { return }
             self.updateRailBack()
+            self.updateComposeButton()
         }
         stack.traitOverrides.hasBackButtonInRail = chrome.hasBackButtonInRail
         addChild(stack)
@@ -220,6 +228,10 @@ final class RootViewController: UIViewController {
             bottomBar.transform = .identity
             bottomBar.frame = CGRect(x: 0, y: bounds.height - safe.bottom - BottomBarView.barHeight,
                                      width: bounds.width, height: BottomBarView.barHeight + safe.bottom)
+            composeButton.transform = .identity
+            composeButton.frame = CGRect(x: bounds.width - 16 - ComposeButton.size,
+                                         y: bottomBar.frame.minY - 16 - ComposeButton.size,
+                                         width: ComposeButton.size, height: ComposeButton.size)
         case .rail(let edge, let inBarColumn):
             // In the system's column where it has one (iPhone Duo: the status bar's, which
             // is the safe area's inset there), and the content beside it.
@@ -272,6 +284,7 @@ final class RootViewController: UIViewController {
         self.chrome = chrome
         let usesRail = chrome != .bottomBar
         bottomBar.isHidden = usesRail
+        composeButton.isHidden = usesRail
         rail.isHidden = !usesRail
         statusBarBackdrop.isHidden = !usesRail
         home.setUsesRail(usesRail)
@@ -281,6 +294,7 @@ final class RootViewController: UIViewController {
             stack.traitOverrides.hasBackButtonInRail = chrome.hasBackButtonInRail
         }
         updateRailBack()
+        updateComposeButton()
         setNeedsStatusBarAppearanceUpdate()
         // The rail has what the drawer had.
         if usesRail { (parent as? SideDrawerController)?.close(animated: false) }
@@ -289,6 +303,31 @@ final class RootViewController: UIViewController {
     /// The rail's back button, for the shown tab's screens (iPhone Duo).
     private func updateRailBack() {
         rail.setShowsBack(chrome.hasBackButtonInRail && selectedStack.viewControllers.count > 1)
+    }
+
+    /// What the shown screen's compose button posts in: nil for no compose button on the
+    /// screen (the rail's still posts an ordinary note), `.some(nil)` for an ordinary note,
+    /// `.some(channel)` for a channel.
+    var composeTarget: Channel?? {
+        switch selectedStack.topViewController {
+        case let pager as TimelinePagerViewController:
+            return .some(pager.composeChannel)
+        case let list as ListTimelineViewController where list.composeChannel != nil:
+            return .some(list.composeChannel)
+        default:
+            return nil
+        }
+    }
+
+    private func updateComposeButton() {
+        let target = composeTarget
+        let shows = target != nil
+        composeButton.alpha = shows ? 1 : 0
+        composeButton.isUserInteractionEnabled = shows
+        composeButton.accessibilityElementsHidden = !shows
+        let label = (target ?? nil) == nil ? "ノートを書く" : "チャンネルに投稿"
+        composeButton.accessibilityLabel = label
+        rail.composeButton.accessibilityLabel = label
     }
 
     private func barsDidChange(_ progress: CGFloat, in tab: Tab) {
@@ -300,6 +339,7 @@ final class RootViewController: UIViewController {
         guard chrome == .bottomBar else { return }
         bottomBar.transform = CGAffineTransform(translationX: 0, y: bottomBar.bounds.height * progress)
         bottomBar.alpha = 1 - progress * 0.6
+        composeButton.transform = CGAffineTransform(translationX: 0, y: BottomBarView.barHeight * progress)
     }
 
     private func tabTapped(_ tab: Tab) {
@@ -345,6 +385,7 @@ final class RootViewController: UIViewController {
         setNeedsStatusBarAppearanceUpdate()
         applyBottomBar(selectedBarsProgress)
         updateRailBack()
+        updateComposeButton()
         updateBadges()
     }
 
@@ -413,16 +454,19 @@ final class RootViewController: UIViewController {
         }
     }
 
-    private func updateListAndAntennaTabs() {
+    private func updateListAntennaAndChannelTabs() {
         let account = session.account
         let tabs = AppSettings.timelineTabs(for: account)
         let hasLists = tabs.contains { if case .list = $0.source { true } else { false } }
         let hasAntennas = tabs.contains { if case .antenna = $0.source { true } else { false } }
-        guard let client = session.client, hasLists || hasAntennas else { return }
+        let hasChannels = tabs.contains { if case .channel = $0.source { true } else { false } }
+        guard let client = session.client, hasLists || hasAntennas || hasChannels else { return }
         Task {
             async let lists = hasLists ? try? client.userLists() : nil
             async let antennas = hasAntennas ? try? client.antennas() : nil
-            let current = TimelineTab.reconciled(tabs, lists: await lists, antennas: await antennas)
+            async let channels = hasChannels ? try? client.tabChannels() : nil
+            let current = TimelineTab.reconciled(tabs, lists: await lists, antennas: await antennas,
+                                                 channels: await channels)
             guard current != tabs, AppSettings.timelineTabs(for: account) == tabs else { return }
             AppSettings.setTimelineTabs(current, for: account)
             NotificationCenter.default.post(name: AppSettings.didChange, object: nil)
@@ -474,7 +518,7 @@ final class RootViewController: UIViewController {
         stack.pushViewController(BookmarksViewController(services: services), animated: false)
     }
 
-    /// The account's lists or antennas, on top of the tab's root (without the push
+    /// The account's lists, antennas or channels, on top of the tab's root (without the push
     /// animation, like the profile).
     func showLists(_ kind: ListsViewController.Kind) {
         let stack = selectedStack

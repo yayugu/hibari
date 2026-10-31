@@ -8,6 +8,9 @@ struct TimelineSession {
         var emptyMessage = "まだノートがありません"
         /// Only the notes with files: the tab has the media mark before `title`.
         var mediaOnly = false
+        /// The channel the timeline is of: the compose button posts in it. As the tab has it
+        /// (only its name and color).
+        var channel: Channel?
     }
 
     /// The home tab's, as the settings had them when the session started.

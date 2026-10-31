@@ -13,16 +13,18 @@ final class TimelinePagerViewController: UIViewController {
     var onAuthenticationFailure: (() -> Void)?
     /// How far the bars are hidden (0 = shown, 1 = hidden), for the bottom bar the shell owns.
     var onBarsChange: ((CGFloat) -> Void)?
+    /// The shown page changed.
+    var onPageChange: (() -> Void)?
 
     private let pager = UIScrollView()
     private let header: HeaderView
     private let statusBarBackdrop = UIView()
-    private let composeButton = ComposeButton()
     private let bars = BarsVisibilityController()
     private let pageFeedback = UISelectionFeedbackGenerator()
-    private var usesRail = false
 
-    private(set) var currentIndex = 0
+    private(set) var currentIndex = 0 {
+        didSet { onPageChange?() }
+    }
 
     /// `title`: in the header, instead of the app's mark.
     init(session: TimelineSession, services: NoteServices, pages: [TimelineSession.Timeline], title: String? = nil,
@@ -41,6 +43,11 @@ final class TimelinePagerViewController: UIViewController {
 
     var currentTimeline: TimelineViewController? {
         timelines.indices.contains(currentIndex) ? timelines[currentIndex] : nil
+    }
+
+    /// The shown tab's channel: composing on it posts in it.
+    var composeChannel: Channel? {
+        pages.indices.contains(currentIndex) ? pages[currentIndex].channel : nil
     }
 
     var barsProgress: CGFloat { bars.progress }
@@ -67,13 +74,7 @@ final class TimelinePagerViewController: UIViewController {
         statusBarBackdrop.backgroundColor = .hibari(.background)
         view.addSubview(header)
         view.addSubview(statusBarBackdrop)
-        view.addSubview(composeButton)
 
-        composeButton.accessibilityIdentifier = "home.compose"
-        composeButton.addAction(UIAction { [weak self] _ in
-            guard let self else { return }
-            self.services.compose(from: self)
-        }, for: .touchUpInside)
         if showsPostedNotes {
             NotificationCenter.default.addObserver(self, selector: #selector(didPostNote(_:)),
                                                    name: NoteServices.didPostNote, object: services)
@@ -153,10 +154,6 @@ final class TimelinePagerViewController: UIViewController {
         statusBarBackdrop.frame = CGRect(x: 0, y: 0, width: bounds.width, height: safe.top)
         header.transform = .identity
         header.frame = CGRect(x: 0, y: safe.top, width: bounds.width, height: header.height)
-        composeButton.transform = .identity
-        composeButton.frame = CGRect(x: bounds.width - 16 - ComposeButton.size,
-                                     y: bounds.height - safe.bottom - 16 - ComposeButton.size,
-                                     width: ComposeButton.size, height: ComposeButton.size)
         bars.distance = header.height
         applyBars(bars.progress)
     }
@@ -168,7 +165,6 @@ final class TimelinePagerViewController: UIViewController {
         for timeline in timelines {
             timeline.barsOffset = -headerOffset
         }
-        composeButton.transform = CGAffineTransform(translationX: 0, y: BottomBarView.barHeight * progress)
         onBarsChange?(progress)
     }
 
@@ -222,17 +218,7 @@ final class TimelinePagerViewController: UIViewController {
     /// (which plays its animation there).
     @objc private func didPostNote(_ notification: Notification) {
         guard let note = notification.userInfo?["note"] as? Note, let timeline = currentTimeline else { return }
-        refresh(timeline, until: note.id, keepingPosition: note.isPureRenote, attempts: 3)
-    }
-
-    private func refresh(_ timeline: TimelineViewController, until noteID: String, keepingPosition: Bool,
-                         attempts: Int) {
-        timeline.refresh(keepingPosition: keepingPosition) { [weak self, weak timeline] in
-            guard let self, let timeline, attempts > 1, !timeline.contains(noteID: noteID) else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                self.refresh(timeline, until: noteID, keepingPosition: keepingPosition, attempts: attempts - 1)
-            }
-        }
+        timeline.refresh(until: note.id, keepingPosition: note.isPureRenote)
     }
 
     func update(_ account: Account) {
@@ -244,12 +230,10 @@ final class TimelinePagerViewController: UIViewController {
         header.accountButton.alpha = 1 - progress
     }
 
-    /// Beside the side rail, which has the account and the compose button.
+    /// Beside the side rail, which has the account.
     func setUsesRail(_ usesRail: Bool) {
-        guard usesRail != self.usesRail else { return }
-        self.usesRail = usesRail
+        guard usesRail != header.usesRail else { return }
         header.usesRail = usesRail
-        composeButton.isHidden = usesRail
         viewIfLoaded?.setNeedsLayout()
     }
 

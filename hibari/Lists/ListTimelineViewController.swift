@@ -18,6 +18,9 @@ final class ListTimelineViewController: UIViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The channel the list is of: composing on the screen posts in it.
+    var composeChannel: Channel? { timelineTab.channel }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .hibari(.background)
@@ -34,11 +37,20 @@ final class ListTimelineViewController: UIViewController {
             timeline.didMove(toParent: self)
             self.timeline = timeline
         }
+        if timelineTab.channel != nil {
+            NotificationCenter.default.addObserver(self, selector: #selector(didPostNote(_:)),
+                                                   name: NoteServices.didPostNote, object: services)
+        }
 
         statusBarBackdrop.backgroundColor = .hibari(.background)
         view.addSubview(header)
         view.addSubview(statusBarBackdrop)
         bars.onChange = { [weak self] progress in self?.applyBars(progress) }
+    }
+
+    @objc private func didPostNote(_ notification: Notification) {
+        guard let note = notification.userInfo?["note"] as? Note, note.channel?.id == timelineTab.channel?.id else { return }
+        timeline?.refresh(until: note.id, keepingPosition: note.isPureRenote)
     }
 
     override func viewDidLayoutSubviews() {

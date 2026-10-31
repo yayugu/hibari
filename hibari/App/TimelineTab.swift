@@ -1,13 +1,15 @@
 import Foundation
 
 /// A tab over the home timelines, in the order of the settings' "タイムラインのタブ".
-struct TimelineTab: Codable, Hashable, Sendable {
+struct TimelineTab: Codable, Hashable, Identifiable, Sendable {
     /// What the tab lists.
     enum Source: Codable, Hashable, Sendable {
         case timeline(kind: TimelineKind)
         /// With its name when last seen, the title until `reconciled`.
         case list(id: String, name: String)
         case antenna(id: String, name: String)
+        /// With its color (`#rrggbb`) too, for the composer.
+        case channel(id: String, name: String, color: String?)
     }
 
     var source: Source
@@ -31,6 +33,10 @@ struct TimelineTab: Codable, Hashable, Sendable {
         self.init(.antenna(id: antenna.id, name: antenna.name), mediaOnly: mediaOnly)
     }
 
+    init(_ channel: Channel, mediaOnly: Bool = false) {
+        self.init(.channel(id: channel.id, name: channel.name, color: channel.color), mediaOnly: mediaOnly)
+    }
+
     /// Until the settings change them: every timeline, with all of its notes.
     static let defaults = TimelineKind.allCases.map { TimelineTab($0) }
 
@@ -41,6 +47,7 @@ struct TimelineTab: Codable, Hashable, Sendable {
         case .timeline(let kind): kind.rawValue
         case .list(let id, _): "list." + id
         case .antenna(let id, _): "antenna." + id
+        case .channel(let id, _, _): "channel." + id
         }
         return mediaOnly ? id + ".media" : id
     }
@@ -54,7 +61,16 @@ struct TimelineTab: Codable, Hashable, Sendable {
     private var timelineTitle: String {
         switch source {
         case .timeline(let kind): kind.title
-        case .list(_, let name), .antenna(_, let name): name
+        case .list(_, let name), .antenna(_, let name), .channel(_, let name, _): name
+        }
+    }
+
+    /// The channel the tab is of, with its name and color as last seen.
+    var channel: Channel? {
+        if case .channel(let id, let name, let color) = source {
+            Channel(id: id, name: name, color: color)
+        } else {
+            nil
         }
     }
 
@@ -77,31 +93,42 @@ struct TimelineTab: Codable, Hashable, Sendable {
         choices(antennas.map { .antenna(id: $0.id, name: $0.name) })
     }
 
+    /// `channels`: `MisskeyClient.tabChannels()`.
+    static func choices(of channels: [Channel]) -> [TimelineTab] {
+        choices(channels.map { .channel(id: $0.id, name: $0.name, color: $0.color) })
+    }
+
     private static func choices(_ sources: [Source]) -> [TimelineTab] {
         [false, true].flatMap { mediaOnly in sources.map { TimelineTab($0, mediaOnly: mediaOnly) } }
     }
 
     /// `tabs` without repeats and without the timelines the account does not have
     /// (`kinds`: the server or the account's role may turn some off). Home when none is
-    /// left. The lists and antennas stay: they are not known until fetched (`reconciled`).
+    /// left. The lists, antennas and channels stay: they are not known until fetched
+    /// (`reconciled`).
     static func shown(_ tabs: [TimelineTab], of kinds: [TimelineKind]) -> [TimelineTab] {
         let choices = Set(choices(of: kinds))
         var seen: Set<String> = []
         let shown = tabs.filter { tab in
             let has = switch tab.source {
             case .timeline: choices.contains(tab)
-            case .list, .antenna: true
+            case .list, .antenna, .channel: true
             }
             return has && seen.insert(tab.id).inserted
         }
         return shown.isEmpty ? [TimelineTab(.home)] : shown
     }
 
-    /// `tabs` with the lists' and antennas' current names, without the deleted ones. nil
-    /// `lists` or `antennas` (not fetched) leaves their tabs as they are.
-    static func reconciled(_ tabs: [TimelineTab], lists: [UserList]?, antennas: [Antenna]?) -> [TimelineTab] {
+    /// `tabs` with the lists', antennas' and channels' current names (and the channels'
+    /// colors), without the deleted lists and antennas and the channels the account can no
+    /// longer have tabs of (`channels`, `MisskeyClient.tabChannels()`: unfollowed and not a
+    /// favorite), as the settings would no longer offer them. nil `lists`, `antennas` or
+    /// `channels` (not fetched) leaves their tabs as they are.
+    static func reconciled(_ tabs: [TimelineTab], lists: [UserList]?, antennas: [Antenna]?,
+                           channels: [Channel]? = nil) -> [TimelineTab] {
         let listNames = lists.map { Dictionary($0.map { ($0.id, $0.name) }) { first, _ in first } }
         let antennaNames = antennas.map { Dictionary($0.map { ($0.id, $0.name) }) { first, _ in first } }
+        let channelsByID = channels.map { Dictionary($0.map { ($0.id, $0) }) { first, _ in first } }
         return tabs.compactMap { tab in
             var tab = tab
             switch tab.source {
@@ -115,6 +142,10 @@ struct TimelineTab: Codable, Hashable, Sendable {
                 guard let antennaNames else { break }
                 guard let name = antennaNames[id] else { return nil }
                 tab.source = .antenna(id: id, name: name)
+            case .channel(let id, _, _):
+                guard let channelsByID else { break }
+                guard let channel = channelsByID[id] else { return nil }
+                tab.source = .channel(id: id, name: channel.name, color: channel.color)
             }
             return tab
         }
@@ -143,7 +174,13 @@ struct TimelineTab: Codable, Hashable, Sendable {
                                         refreshPolicy: .preserveHistory)
             // `antennas/notes` takes no `withFiles`.
             source = mediaOnly ? NotesWithFilesSource(base: all) : all
+        case .channel(let id, _, _):
+            let all = APITimelineSource(client: client, endpoint: "channels/timeline", parameters: ["channelId": id],
+                                        refreshPolicy: .preserveHistory)
+            // `channels/timeline` takes no `withFiles` either.
+            source = mediaOnly ? NotesWithFilesSource(base: all) : all
         }
-        return TimelineSession.Timeline(id: id, title: timelineTitle, source: source, mediaOnly: mediaOnly)
+        return TimelineSession.Timeline(id: id, title: timelineTitle, source: source, mediaOnly: mediaOnly,
+                                        channel: channel)
     }
 }

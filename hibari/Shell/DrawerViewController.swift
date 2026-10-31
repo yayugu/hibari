@@ -89,6 +89,7 @@ final class DrawerViewController: UIViewController {
             ("ブックマーク", "Bookmark", "drawer.menu.bookmarks", { [weak self] in self?.onShowBookmarks?() }),
             ("リスト", "List", "drawer.menu.lists", { [weak self] in self?.onShowLists?(.lists) }),
             ("アンテナ", "Antenna", "drawer.menu.antennas", { [weak self] in self?.onShowLists?(.antennas) }),
+            ("チャンネル", "Channel", "drawer.menu.channels", { [weak self] in self?.onShowLists?(.channels) }),
         ]
         for item in menu {
             var configuration = UIButton.Configuration.plain()

@@ -28,6 +28,7 @@ struct TimelineTabsView: View {
     @State private var tabs: [TimelineTab]
     @State private var lists: [UserList]?
     @State private var antennas: [Antenna]?
+    @State private var channels: [Channel]?
 
     init(account: Account, kinds: [TimelineKind], client: MisskeyClient? = nil) {
         self.account = account
@@ -55,6 +56,9 @@ struct TimelineTabsView: View {
             if let antennas {
                 additions(TimelineTab.choices(of: antennas), header: "追加できるアンテナ")
             }
+            if let channels {
+                additions(TimelineTab.choices(of: channels), header: "追加できるチャンネル")
+            }
             Section {
                 Button("最初の状態に戻す") {
                     withAnimation { tabs = defaults }
@@ -68,7 +72,7 @@ struct TimelineTabsView: View {
             AppSettings.setTimelineTabs(tabs, for: account)
             NotificationCenter.default.post(name: AppSettings.didChange, object: nil)
         }
-        .task { await loadListsAndAntennas() }
+        .task { await loadListsAntennasAndChannels() }
     }
 
     @ViewBuilder
@@ -102,16 +106,19 @@ struct TimelineTabsView: View {
         TimelineTab.shown(TimelineTab.defaults, of: kinds)
     }
 
-    /// Also renames the shown ones and takes out the deleted.
-    private func loadListsAndAntennas() async {
+    /// Also renames the shown ones and takes out the ones gone (`TimelineTab.reconciled`).
+    private func loadListsAntennasAndChannels() async {
         guard let client else { return }
         async let fetchedLists = try? client.userLists()
         async let fetchedAntennas = try? client.antennas()
-        let (lists, antennas) = await (fetchedLists, fetchedAntennas)
+        async let fetchedChannels = try? client.tabChannels()
+        let (lists, antennas, channels) = await (fetchedLists, fetchedAntennas, fetchedChannels)
         withAnimation {
             self.lists = lists
             self.antennas = antennas
-            let current = TimelineTab.shown(TimelineTab.reconciled(tabs, lists: lists, antennas: antennas), of: kinds)
+            self.channels = channels
+            let reconciled = TimelineTab.reconciled(tabs, lists: lists, antennas: antennas, channels: channels)
+            let current = TimelineTab.shown(reconciled, of: kinds)
             if current != tabs { tabs = current }
         }
     }

@@ -233,13 +233,14 @@ final class NavigationRailView: UIView {
         avatarButton.accessibilityTraits = selected == .profile ? [.button, .selected] : .button
     }
 
-    /// The items that don't fit, the lists and antennas, then the account list and the
-    /// settings.
+    /// The items that don't fit, the lists, antennas and channels, then the account list and
+    /// the settings.
     private func updateMenu() {
         let moved = overflow.map { item in
             UIAction(title: item.label, image: item.icon(selected: false)) { [weak self] _ in self?.tapped(item) }
         }
-        let lists: [UIMenuElement] = onShowLists == nil ? [] : [ListsViewController.Kind.lists, .antennas].map { kind in
+        let kinds: [ListsViewController.Kind] = [.lists, .antennas, .channels]
+        let lists: [UIMenuElement] = onShowLists == nil ? [] : kinds.map { kind in
             UIAction(title: kind.title, image: UIImage(named: kind.icon)?.withRenderingMode(.alwaysTemplate)) {
                 [weak self] _ in self?.onShowLists?(kind)
             }

@@ -1,15 +1,17 @@
 import Foundation
 
 /// What `notes/create` sends: a note, a reply (`replyID`), a quote (`renoteID` with text or
-/// files) or a renote (`renoteID` alone).
+/// files) or a renote (`renoteID` alone), each also in a channel (`channelID`).
 struct NoteDraft: Sendable, Equatable {
     var text: String?
+    /// Misskey makes a channel's notes public (and not federated) whatever this says.
     var visibility: NoteVisibility
     /// Who a direct note is for (with `.specified` only).
     var visibleUserIDs: [String] = []
     var fileIDs: [String] = []
     var replyID: String?
     var renoteID: String?
+    var channelID: String?
 
     var parameters: [String: any Sendable] {
         var parameters: [String: any Sendable] = ["visibility": visibility.rawValue]
@@ -18,6 +20,7 @@ struct NoteDraft: Sendable, Equatable {
         if !fileIDs.isEmpty { parameters["fileIds"] = fileIDs }
         if let replyID { parameters["replyId"] = replyID }
         if let renoteID { parameters["renoteId"] = renoteID }
+        if let channelID { parameters["channelId"] = channelID }
         return parameters
     }
 }
@@ -44,6 +47,13 @@ enum NoteVisibility: String, CaseIterable, Sendable {
     /// A note's; nil for one Misskey does not have.
     init?(of note: Note) {
         self.init(rawValue: note.visibility)
+    }
+
+    /// The widest a renote or quote of `note` outside its channel goes: the note's, and no
+    /// wider than home for a sensitive channel's (as Misskey's web client has it).
+    init?(renoting note: Note) {
+        guard let visibility = NoteVisibility(of: note) else { return nil }
+        self = note.channel?.isSensitive == true ? visibility.narrowed(to: .home) : visibility
     }
 
     var title: String {
@@ -132,9 +142,11 @@ enum NoteText {
 
 extension Note {
     /// Misskey lets anyone renote (or quote) public and home notes; followers-only ones
-    /// only their author, direct ones no one.
-    func canBeRenoted(by account: Account) -> Bool {
-        switch visibility {
+    /// only their author, direct ones no one. A channel's notes go outside it (into
+    /// `channelID`, another channel, or none) only where the channel allows it.
+    func canBeRenoted(by account: Account, into channelID: String? = nil) -> Bool {
+        if let channel, channel.id != channelID, !channel.allowRenoteToExternal { return false }
+        return switch visibility {
         case "public", "home": true
         case "followers": user.host == nil && user.id == account.userID
         default: false

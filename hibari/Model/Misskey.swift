@@ -21,6 +21,8 @@ final class Note: Codable, Sendable {
     let renoteId: String?
     let reply: Note?
     let renote: Note?
+    /// The channel the note was posted in.
+    let channel: Channel?
     let poll: Poll?
     let myReaction: String?
     /// Which reactions the author takes (Misskey's `reactionAcceptance`). The server turns
@@ -69,7 +71,7 @@ final class Note: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, createdAt, user, text, cw, visibility, visibleUserIds, localOnly, renoteCount, repliesCount
-        case reactions, reactionEmojis, emojis, files, replyId, renoteId, reply, renote, poll, myReaction
+        case reactions, reactionEmojis, emojis, files, replyId, renoteId, reply, renote, channel, poll, myReaction
         case reactionAcceptance
     }
 
@@ -93,6 +95,7 @@ final class Note: Codable, Sendable {
         renoteId = try c.decodeIfPresent(String.self, forKey: .renoteId)
         reply = try? c.decodeIfPresent(Note.self, forKey: .reply)
         renote = try? c.decodeIfPresent(Note.self, forKey: .renote)
+        channel = try? c.decodeIfPresent(Channel.self, forKey: .channel)
         poll = try? c.decodeIfPresent(Poll.self, forKey: .poll)
         myReaction = try? c.decodeIfPresent(String.self, forKey: .myReaction)
         reactionAcceptance = try? c.decodeIfPresent(String.self, forKey: .reactionAcceptance)
@@ -121,6 +124,7 @@ final class Note: Codable, Sendable {
         try c.encodeIfPresent(renoteId, forKey: .renoteId)
         try c.encodeIfPresent(reply, forKey: .reply)
         try c.encodeIfPresent(renote, forKey: .renote)
+        try c.encodeIfPresent(channel, forKey: .channel)
         try c.encodeIfPresent(poll, forKey: .poll)
         try c.encodeIfPresent(myReaction, forKey: .myReaction)
         try c.encodeIfPresent(reactionAcceptance, forKey: .reactionAcceptance)
@@ -147,6 +151,7 @@ final class Note: Codable, Sendable {
         renoteId = note.renoteId
         self.reply = reply ?? note.reply
         self.renote = renote ?? note.renote
+        channel = note.channel
         self.poll = poll ?? note.poll
         self.myReaction = myReaction ?? note.myReaction
         reactionAcceptance = note.reactionAcceptance
@@ -352,6 +357,44 @@ struct User: Codable, Sendable {
         isBot = try c.decodeIfPresent(Bool.self, forKey: .isBot) ?? false
         isCat = try c.decodeIfPresent(Bool.self, forKey: .isCat) ?? false
         emojis = (try? c.decodeIfPresent([String: String].self, forKey: .emojis)) ?? [:]
+    }
+}
+
+/// A channel as a note carries it (Misskey's `Note.channel`).
+struct Channel: Codable, Hashable, Sendable {
+    let id: String
+    let name: String
+    /// `#rrggbb`.
+    let color: String?
+    let isSensitive: Bool
+    /// Whether its notes may be renoted (or quoted) outside it.
+    let allowRenoteToExternal: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, color, isSensitive, allowRenoteToExternal
+    }
+
+    init(id: String, name: String, color: String? = nil, isSensitive: Bool = false, allowRenoteToExternal: Bool = true) {
+        self.id = id
+        self.name = name
+        self.color = color
+        self.isSensitive = isSensitive
+        self.allowRenoteToExternal = allowRenoteToExternal
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        color = try? c.decodeIfPresent(String.self, forKey: .color)
+        isSensitive = (try? c.decodeIfPresent(Bool.self, forKey: .isSensitive)) ?? false
+        allowRenoteToExternal = (try? c.decodeIfPresent(Bool.self, forKey: .allowRenoteToExternal)) ?? true
+    }
+
+    /// `color` as 0xrrggbb, nil when it is not one.
+    var rgb: UInt32? {
+        guard let color, color.hasPrefix("#"), color.count == 7 else { return nil }
+        return UInt32(color.dropFirst(), radix: 16)
     }
 }
 

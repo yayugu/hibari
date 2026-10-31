@@ -217,51 +217,78 @@ extension NoteServices {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
-    func compose(reply: Note? = nil, quote: Note? = nil, to recipient: User? = nil, from controller: UIViewController) {
+    /// `channel`: the note goes in it (a reply goes in its note's anyway).
+    func compose(reply: Note? = nil, quote: Note? = nil, to recipient: User? = nil, in channel: Channel? = nil,
+                 from controller: UIViewController) {
         guard let client else { return }
         controller.present(ComposeViewController(services: self, client: client, reply: reply, quote: quote,
-                                                 recipient: recipient),
+                                                 recipient: recipient, channel: channel),
                            animated: true)
     }
 
-    /// A reply to a direct note is direct too, for the same users.
+    /// A reply to a direct note is direct too, for the same users; one to a channel's note
+    /// goes in the channel.
     func replyTapped(_ note: Note, from controller: UIViewController) {
         compose(reply: note, from: controller)
     }
 
-    /// Opens the renote sheet. `willChange` hears that the account renotes the note (true)
-    /// or takes its renote back (false) from it, as `bookmarkTapped` does.
+    /// Opens the renote sheet. A channel's note also renotes and quotes in the channel, and
+    /// outside it only where the channel allows it (as Misskey's web client). `willChange`
+    /// hears that the account renotes the note (true) or takes its renote back (false) from
+    /// it, as `bookmarkTapped` does.
     func renoteTapped(_ note: Note, from controller: UIViewController, willChange: ((Bool) -> Void)? = nil) {
-        let allowed = note.canBeRenoted(by: account)
+        let channel = note.channel
+        let allowed = note.canBeRenoted(by: account, into: channel?.id)
+        let outside = note.canBeRenoted(by: account)
         let busy = renotes.isBusy(note)
         let side = ActionSheetController.iconSize
         let icon = IconStore.shared.templateImage(.renote, size: CGSize(width: side, height: side),
                                                   scale: controller.traitCollection.displayScale)
-        let renote = renotes.isRenoted(note)
-            ? ActionSheetController.Action(title: "リノートを取り消す", image: icon, isEnabled: !busy) { [weak self] in
-                self?.undoRenote(note) { willChange?(false) }
+        func renoteAction(_ title: String, in channel: Channel?) -> ActionSheetController.Action {
+            ActionSheetController.Action(title: title, image: icon, isEnabled: allowed && !busy) { [weak self] in
+                self?.renote(note, in: channel) { willChange?(true) }
             }
-            : ActionSheetController.Action(title: "リノート", image: icon, isEnabled: allowed && !busy) { [weak self] in
-                self?.renote(note) { willChange?(true) }
-            }
-        let quote = ActionSheetController.Action(title: "引用", image: UIImage(systemName: "pencil"), isEnabled: allowed) {
-            [weak self, weak controller] in
-            guard let controller else { return }
-            self?.compose(quote: note, from: controller)
         }
-        ActionSheetController(message: allowed ? nil : "この投稿はリノートできません", actions: [renote, quote])
+        func quoteAction(_ title: String, in channel: Channel?) -> ActionSheetController.Action {
+            ActionSheetController.Action(title: title, image: UIImage(systemName: "pencil"), isEnabled: allowed) {
+                [weak self, weak controller] in
+                guard let controller else { return }
+                self?.compose(quote: note, in: channel, from: controller)
+            }
+        }
+        var renoteActions: [ActionSheetController.Action] = []
+        var quoteActions: [ActionSheetController.Action] = []
+        if renotes.isRenoted(note) {
+            renoteActions.append(ActionSheetController.Action(title: "リノートを取り消す", image: icon, isEnabled: !busy) {
+                [weak self] in
+                self?.undoRenote(note) { willChange?(false) }
+            })
+        } else if let channel {
+            renoteActions.append(renoteAction("チャンネル内でリノート", in: channel))
+            if outside { renoteActions.append(renoteAction("リノート", in: nil)) }
+        } else {
+            renoteActions.append(renoteAction("リノート", in: nil))
+        }
+        if let channel {
+            quoteActions.append(quoteAction("チャンネル内で引用", in: channel))
+            if outside { quoteActions.append(quoteAction("引用", in: nil)) }
+        } else {
+            quoteActions.append(quoteAction("引用", in: nil))
+        }
+        ActionSheetController(message: allowed ? nil : "この投稿はリノートできません", actions: renoteActions + quoteActions)
             .show(from: controller)
     }
 
-    /// For the visibility picked last, narrowed to the note's (as Misskey would). The
-    /// button shows it right away. `willChange` runs first if it goes. Returns whether it
-    /// went.
+    /// In `channel`, or else for the visibility picked last, narrowed to the note's (as
+    /// Misskey would). The button shows it right away. `willChange` runs first if it goes.
+    /// Returns whether it went.
     @discardableResult
-    func renote(_ note: Note, willChange: (() -> Void)? = nil) -> Bool {
+    func renote(_ note: Note, in channel: Channel? = nil, willChange: (() -> Void)? = nil) -> Bool {
         guard let client, !renotes.isRenoted(note), !renotes.isBusy(note) else { return false }
         willChange?()
-        let draft = NoteDraft(visibility: NoteVisibility.remembered(for: account).narrowed(to: NoteVisibility(of: note)),
-                              renoteID: note.id)
+        let visibility: NoteVisibility = channel != nil ? .public
+            : NoteVisibility.remembered(for: account).narrowed(to: NoteVisibility(renoting: note))
+        let draft = NoteDraft(visibility: visibility, renoteID: note.id, channelID: channel?.id)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         renotes.set(.sending, for: note.id, renoteCount: ServerCount.adding(note.renoteCount, 1))
         Task { [weak self] in

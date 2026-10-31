@@ -3,7 +3,7 @@ import CoreGraphics
 enum Icon: UInt8, Hashable, Sendable {
     case reply, renote, reaction, reacted, like, liked, bookmark, bookmarked, share
     case renoteBadge, visibilityHome, visibilityFollowers, visibilitySpecified, file, check
-    case person, poll, clock, bell, medal, link
+    case person, poll, clock, bell, medal, link, channel
 
     var symbolName: String {
         switch self {
@@ -27,6 +27,7 @@ enum Icon: UInt8, Hashable, Sendable {
         case .bell: "bell.fill"
         case .medal: "medal.fill"
         case .link: "link"
+        case .channel: "tv"
         }
     }
 

@@ -369,7 +369,8 @@ struct ComposeDraftTests {
     @Test func eachSlotAndAccountHasItsOwn() {
         let root = TestData.temporaryDirectory()
         let slots: [ComposeDraftStore.Slot] = [.note, .reply(noteID: "n1"), .reply(noteID: "n2"), .quote(noteID: "n1"),
-                                               .direct(userID: "u1")]
+                                               .direct(userID: "u1"), .quote(noteID: "n1", channelID: "c1"),
+                                               .channel(channelID: "c1")]
         for (index, slot) in slots.enumerated() {
             ComposeDraftStore(accountID: "a", slot: slot, root: root)
                 .save(ComposeDraft(text: "\(index)", visibility: "public", attachments: []))

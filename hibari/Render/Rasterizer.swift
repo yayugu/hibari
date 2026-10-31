@@ -162,6 +162,7 @@ private extension Icon {
         case .visibilityHome: "VisibilityHome"
         case .visibilityFollowers: "VisibilityFollowers"
         case .visibilitySpecified: "VisibilitySpecified"
+        case .channel: "Channel"
         default: nil
         }
     }

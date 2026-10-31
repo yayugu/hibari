@@ -8,6 +8,8 @@ final class ComposeViewController: UIViewController {
     private let client: MisskeyClient
     private let reply: Note?
     private var quote: Note?
+    /// Where the note goes: public there, whatever `visibility` says.
+    private let channel: Channel?
     private var visibility: NoteVisibility
     private let recipientIDs: [String]
     private var recipientNames: [String: String] = [:]
@@ -48,18 +50,24 @@ final class ComposeViewController: UIViewController {
     private static let topBarHeight: CGFloat = 52
     private static let toolbarHeight: CGFloat = 48
 
-    /// `recipient`: a direct note to them. Opened the same way as before, it picks up
-    /// the draft left then.
-    init(services: NoteServices, client: MisskeyClient, reply: Note? = nil, quote: Note? = nil, recipient: User? = nil) {
+    /// `recipient`: a direct note to them. `channel`: the note goes in it; a reply goes in
+    /// its note's, as Misskey's web client has it. Opened the same way as before, it picks
+    /// up the draft left then.
+    init(services: NoteServices, client: MisskeyClient, reply: Note? = nil, quote: Note? = nil, recipient: User? = nil,
+         channel: Channel? = nil) {
         self.services = services
         self.client = client
         self.reply = reply
+        let channel = recipient == nil ? channel ?? reply?.channel : nil
+        self.channel = channel
         let slot: ComposeDraftStore.Slot = if let recipient {
             .direct(userID: recipient.id)
         } else if let reply {
             .reply(noteID: reply.id)
         } else if let quote {
-            .quote(noteID: quote.id)
+            .quote(noteID: quote.id, channelID: channel?.id)
+        } else if let channel {
+            .channel(channelID: channel.id)
         } else {
             .note
         }
@@ -72,6 +80,9 @@ final class ComposeViewController: UIViewController {
             visibility = .specified
             recipientIDs = [recipient.id]
             recipientNames[recipient.id] = recipient.acct
+        } else if channel != nil {
+            visibility = .public
+            recipientIDs = []
         } else {
             let saved = draft.flatMap { NoteVisibility(rawValue: $0.visibility) }.flatMap {
                 NoteVisibility.pickable.contains($0) ? $0 : nil
@@ -286,7 +297,8 @@ final class ComposeViewController: UIViewController {
         }
         avatar.frame = CGRect(x: Self.padding, y: y, width: Self.avatarSize, height: Self.avatarSize)
         let pill = visibilityButton.sizeThatFits(CGSize(width: column, height: 32))
-        visibilityButton.frame = CGRect(x: Self.columnX, y: y + (Self.avatarSize - 30) / 2, width: pill.width, height: 30)
+        visibilityButton.frame = CGRect(x: Self.columnX, y: y + (Self.avatarSize - 30) / 2, width: min(pill.width, column),
+                                        height: 30)
         visibilityButton.layer.cornerRadius = 15
         y += Self.avatarSize + 2
         if showsAddress {
@@ -365,10 +377,14 @@ final class ComposeViewController: UIViewController {
 
     private var widestVisibility: NoteVisibility {
         NoteVisibility.public.narrowed(to: reply.flatMap(NoteVisibility.init(of:)))
-            .narrowed(to: quote.flatMap(NoteVisibility.init(of:)))
+            .narrowed(to: quote.flatMap(NoteVisibility.init(renoting:)))
     }
 
     private func updateVisibility() {
+        if let channel {
+            showChannel(channel)
+            return
+        }
         visibility = visibility.narrowed(to: widestVisibility)
         var configuration = UIButton.Configuration.plain()
         var title = AttributedString(visibility.title)
@@ -403,6 +419,30 @@ final class ComposeViewController: UIViewController {
                 self.saveDraft()
             }
         })
+        view.setNeedsLayout()
+    }
+
+    /// Instead of the visibility, which the channel decides.
+    private func showChannel(_ channel: Channel) {
+        var configuration = UIButton.Configuration.plain()
+        var title = AttributedString(channel.name)
+        title.font = .systemFont(ofSize: 14, weight: .bold)
+        configuration.attributedTitle = title
+        configuration.titleLineBreakMode = .byTruncatingTail
+        let scale = traitCollection.displayScale > 0 ? traitCollection.displayScale : 3
+        configuration.image = IconStore.shared.templateImage(.channel, size: CGSize(width: 14, height: 14), scale: scale)?
+            .withTintColor(channel.rgb.map { Palette.RGBA($0).uiColor } ?? .hibari(.accent),
+                           renderingMode: .alwaysOriginal)
+        configuration.imagePadding = 4
+        configuration.baseForegroundColor = .hibari(.accent)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12)
+        visibilityButton.configuration = configuration
+        visibilityButton.layer.borderColor = UIColor.hibari(.border).resolvedColor(with: traitCollection).cgColor
+        visibilityButton.menu = nil
+        visibilityButton.isUserInteractionEnabled = false
+        visibilityButton.accessibilityLabel = "チャンネル"
+        visibilityButton.accessibilityValue = channel.name
+        visibilityButton.accessibilityTraits = .staticText
         view.setNeedsLayout()
     }
 
@@ -498,7 +538,7 @@ final class ComposeViewController: UIViewController {
             let note = try? await client.note(noteID)
             guard let self else { return }
             self.loadingQuote = false
-            if let note, note.canBeRenoted(by: self.services.account) {
+            if let note, note.canBeRenoted(by: self.services.account, into: self.channel?.id) {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 self.setQuote(note)
             } else {
@@ -589,7 +629,8 @@ final class ComposeViewController: UIViewController {
         let text = NoteText.trimmed(textView.source)
         let attachments = self.attachments
         let draft = NoteDraft(text: text.isEmpty ? nil : text, visibility: visibility,
-                              visibleUserIDs: isDirect ? recipientIDs : [], replyID: reply?.id, renoteID: quote?.id)
+                              visibleUserIDs: isDirect ? recipientIDs : [], replyID: reply?.id, renoteID: quote?.id,
+                              channelID: channel?.id)
         let sent = isDirect ? "ダイレクトを送信しました" : "ノートを送信しました"
         Task { [weak self, client] in
             do {

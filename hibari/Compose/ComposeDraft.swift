@@ -24,21 +24,24 @@ struct ComposeDraft: Codable, Sendable {
 }
 
 /// The draft of one composer: each way of opening it (a new note, a reply to a note, a
-/// quote of a note, a direct note to a user) has its own per account, and opening it the
-/// same way again picks the draft up.
+/// quote of a note, a direct note to a user, each of the first and the third in a channel)
+/// has its own per account, and opening it the same way again picks the draft up.
 struct ComposeDraftStore: Sendable {
     enum Slot: Equatable {
         case note
         case reply(noteID: String)
-        case quote(noteID: String)
+        case quote(noteID: String, channelID: String? = nil)
         case direct(userID: String)
+        case channel(channelID: String)
 
         var name: String {
             switch self {
             case .note: "note"
             case .reply(let id): "reply-\(id)"
-            case .quote(let id): "quote-\(id)"
+            case .quote(let id, nil): "quote-\(id)"
+            case .quote(let id, let channelID?): "quote-\(id)-channel-\(channelID)"
             case .direct(let id): "direct-\(id)"
+            case .channel(let id): "channel-\(id)"
             }
         }
     }

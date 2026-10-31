@@ -39,7 +39,7 @@ scripts/local_misskey.py up        # 起動。初回はセットアップとテ�
 scripts/local_misskey.py down      # 停止（データは残る）
 scripts/local_misskey.py reset     # データを全部消して作り直す
 scripts/local_misskey.py approve   # シミュレータのアプリで開いたログインの画面を許可して、ログインを終える
-scripts/local_misskey.py post      # 新着ノートを作る（引っ張って更新の確認。-n 3 / --image 2 / --as alice / --text ...）
+scripts/local_misskey.py post      # 新着ノートを作る（引っ張って更新の確認。-n 3 / --image 2 / --as alice / --text ... / --channel 雑談）
 scripts/local_misskey.py notify    # @hibari に通知を作る（ノートへのリアクション・リノート・返信・引用、メンション、フォロー。--as hibari_sub）
 ```
 

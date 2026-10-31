@@ -10,7 +10,7 @@ federation setting is "none". See scripts/local_misskey/compose.yml.
     scripts/local_misskey.py down       # stops it (the data stays)
     scripts/local_misskey.py reset      # deletes all the data, then `up`
     scripts/local_misskey.py approve    # approves the sign-in open in the app in the Simulator
-    scripts/local_misskey.py post       # new notes from followed accounts, for pull-to-refresh
+    scripts/local_misskey.py post       # new notes from followed accounts, for pull-to-refresh (--channel 雑談)
     scripts/local_misskey.py notify     # notifications for @hibari (reactions, renotes, a reply, ...)
 
 Accounts (the password of each is "hibari"): @hibari (the one to use in the app; follows
@@ -18,11 +18,15 @@ Accounts (the password of each is "hibari"): @hibari (the one to use in the app;
 @dave (followed by nobody: not in @hibari's home timeline), @newsbot (a bot) and @admin
 (the administrator, for the web UI's control panel).
 
-The seed has about 100 notes: MFM, custom emojis (static, wide and animated), images, a
+The seed has about 150 notes: MFM, custom emojis (static, wide and animated), images, a
 GIF, a video, sensitive media, CW, a poll, renotes, quotes, a reply thread, mentions,
 hashtags, a long note, non-public visibilities, reactions and links to the test pages (URL
 previews of each kind). Every note is dated when the seed ran: Misskey takes no dates from
 the API.
+
+Channels: @hibari follows "ひばり開発" (also a favorite; renotes and a quote of its notes
+outside it) and "雑談" (no renotes out of it), and only favorites "写真部" (notes with
+images).
 
 Sign in from the app with the server `http://localhost:3000`. On the Misskey page the app
 opens, sign in with the account's password and allow, or instead run `approve` (as @hibari;
@@ -388,6 +392,28 @@ def seed():
     everyone = [account[0] for account in ACCOUNTS]
     sizes = [(1200, 800), (800, 1200), (1000, 1000), (1600, 900), (900, 1600), (2000, 600)]
 
+    # Channels, with older notes before the others (more come at the end). The notes of those
+    # @hibari follows reach its home timeline, also @dave's.
+    def channel(username, name, description, color, **params):
+        return api("channels/create", tokens[username], name=name, description=description, color=color, **params)
+
+    dev = channel("alice", "ひばり開発", "Hibari の開発の話をするチャンネル :hibari:\n**MFM** も使える", "#1d9bf0")
+    chat = channel("bob", "雑談", "なんでも話すチャンネル。チャンネルの外へはリノートできない", "#e11d48",
+                   allowRenoteToExternal=False)
+    photos = channel("carol", "写真部", "写真を貼るチャンネル（@hibari はお気に入りだけでフォローしていない）", "#f59e0b")
+    for followed in (dev, chat):
+        api("channels/follow", tokens["hibari"], channelId=followed["id"])
+    for favorite in (dev, photos):
+        api("channels/favorite", tokens["hibari"], channelId=favorite["id"])
+
+    for index in range(12):
+        username = rng.choice(["alice", "bob", "carol"])
+        images = [rng.choice(sizes)] if index % 4 == 1 else []
+        note(username, "。".join(rng.sample(PHRASES, rng.randint(1, 2))), images, channelId=dev["id"])
+        note(rng.choice(["alice", "bob", "carol", "dave"]), rng.choice(PHRASES), channelId=chat["id"])
+        note("carol", rng.choice(PHRASES), [rng.choice(sizes) for _ in range(rng.choice([1, 1, 2, 3]))],
+             channelId=photos["id"])
+
     for index in range(75):
         username = rng.choice(["alice", "bob", "carol", "dave", "newsbot", "hibari_sub", "alice", "bob"])
         text = "。".join(rng.sample(PHRASES, rng.randint(1, 3)))
@@ -463,6 +489,17 @@ def seed():
     note("alice", "リンク2つ http://docs.hibari.test/guide と http://blog.hibari.test/posts/hello（カードは後のほう）")
     note("bob", "?[プレビューしないリンク](http://news.hibari.test/articles/desk-rack) だけ（カードなし）")
     note("carol", "CW の中のリンク http://www.hibari-shop.test/items/42", cw="買い物の話")
+
+    question = note("bob", "チャンネルのテスト。返信はチャンネルの中に入る", channelId=dev["id"])
+    note("alice", "チャンネル内の返信", replyId=question["id"], channelId=dev["id"])
+    note("hibari", "@hibari からチャンネルへの投稿", channelId=dev["id"])
+    note("dave", "フォローされていなくても、フォロー中のチャンネルの投稿はホームに出る", channelId=chat["id"])
+    closed = note("bob", "このチャンネルの投稿はチャンネルの外へはリノートできない", channelId=chat["id"])
+    api("notes/create", tokens["alice"], renoteId=closed["id"], channelId=chat["id"])
+    shared = note("alice", "チャンネルの外へもリノートできる投稿", [(1200, 800)], channelId=dev["id"])
+    api("notes/create", tokens["bob"], renoteId=shared["id"])
+    note("carol", "チャンネルの投稿を外で引用", renoteId=shared["id"])
+    note("carol", "写真部の新しい投稿", [(1000, 1000), (1200, 800)], channelId=photos["id"])
 
     newest = note("alice", "いちばん新しい投稿", [(1200, 800)])
 
@@ -556,11 +593,20 @@ def post(args):
         token = native_token(username)
         text = args.text or "%s %s" % (rng.choice(PHRASES), datetime.datetime.now().strftime("%H:%M:%S"))
         params = {"text": text}
+        if args.channel:
+            params["channelId"] = channel_id(args.channel)
         if args.image:
             params["fileIds"] = [upload(token, "image.jpg", picture(rng, *rng.choice([(1200, 800), (800, 1200), (1000, 1000)])),
                                         "image/jpeg")["id"] for _ in range(args.image)]
         api("notes/create", token, **params)
         print("@%s: %s" % (username, text))
+
+
+def channel_id(name):
+    found = [c for c in api("channels/search", query=name, type="nameOnly", limit=100) if c["name"] == name]
+    if not found:
+        sys.exit("no channel named %s" % name)
+    return found[0]["id"]
 
 
 def notify(args):
@@ -603,6 +649,7 @@ def main():
     command.add_argument("--image", type=int, default=0, help="images per note")
     command.add_argument("--as", dest="username", help="the author")
     command.add_argument("--text", help="the text (default: a random phrase and the time)")
+    command.add_argument("--channel", help="the channel to post in, by name (ひばり開発, 雑談, 写真部)")
     command.set_defaults(run=post)
     command = commands.add_parser("notify", help="notifications for an account: reactions, renotes, a reply, ...")
     command.add_argument("--as", dest="username", default="hibari", help="the account notified (default: hibari)")

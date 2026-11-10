@@ -337,12 +337,16 @@ final class NavigationRailView: UIView {
         }
     }
 
-    /// The parts of the column the system keeps for itself: the status bar and the camera
-    /// (iPhone Duo), and the fold while the device is half open.
+    /// The parts of the column the system keeps for itself, for the items to go above or
+    /// below: the status bar and the camera (iPhone Duo), and the fold while the device is
+    /// half open. Not what runs the column's length, which nothing can clear that way: the
+    /// strip at one edge of the hardware that iPad reports, at the side in landscape (the
+    /// safe area leaves it, and the rail is as in portrait there).
     private func reservedFrames() -> [CGRect] {
         guard #available(iOS 27.1, *) else { return [] }
         let regions = reservedRegions(kind: .occlusion) + reservedRegions(kind: .division)
-        return regions.filter { $0.isActive && $0.frame.intersects(bounds) }.map(\.frame)
+        return regions.filter { $0.isActive && $0.frame.intersects(bounds) && $0.frame.height <= bounds.height / 2 }
+            .map(\.frame)
     }
 }
 

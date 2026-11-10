@@ -403,6 +403,27 @@ struct ReactionControllerTests {
         #expect(log.all == ["notes/reactions/create ❤️"])
     }
 
+    @Test func whatAChangeHasWaitsForTheChangeItselfToBeSaved() async throws {
+        let log = Log()
+        let controller = controller(log: log)
+        let note = try note()
+        let saved = Locked<[[String]]>([])
+        let observer = NotificationCenter.default.addObserver(forName: ReactionController.didChange, object: controller,
+                                                              queue: nil) { _ in
+            MainActor.assumeIsolated {
+                controller.whenSaved("n1") { saved.withLock { $0.append(log.all) } }
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        try controller.react(with: "❤️", to: note)
+        controller.unreact(note)
+        for _ in 0..<200 where saved.withLock({ $0.count }) < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(saved.withLock { $0 } == [["notes/reactions/create ❤️"],
+                                          ["notes/reactions/create ❤️", "notes/reactions/delete"]])
+    }
+
     @Test func aNoteThatTakesLikesOnlyGetsALike() async throws {
         let log = Log()
         let controller = controller(log: log)

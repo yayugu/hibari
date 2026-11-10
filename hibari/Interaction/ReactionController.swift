@@ -108,8 +108,8 @@ final class ReactionController {
     ) {
         let noteID = change.noteID
         pending[noteID] = (change, (pending[noteID]?.count ?? 0) + 1)
-        post(change)
         guard let client else {
+            post(change)
             finish(noteID)
             return
         }
@@ -123,6 +123,9 @@ final class ReactionController {
             }
             finish(noteID)
         }
+        // Once the request is queued: what the change has wait for the server (`whenSaved`)
+        // waits for this one too, not just the ones before it.
+        post(change)
     }
 
     private func recover(_ noteID: String, from error: any Error, client: MisskeyClient) async {

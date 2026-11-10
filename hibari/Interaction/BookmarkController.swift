@@ -23,27 +23,30 @@ final class BookmarkController {
     @discardableResult
     func toggle(_ note: Note) -> Bool {
         let bookmarked = !isBookmarked(note)
-        set(bookmarked, for: note.id)
-        guard let client else { return bookmarked }
         let noteID = note.id
-        pending[noteID, default: 0] += 1
-        let previous = queues[noteID]
-        queues[noteID] = Task {
-            await previous?.value
-            do {
-                if bookmarked {
-                    try await client.bookmark(noteID)
-                } else {
-                    try await client.unbookmark(noteID)
+        if let client {
+            pending[noteID, default: 0] += 1
+            let previous = queues[noteID]
+            queues[noteID] = Task {
+                await previous?.value
+                do {
+                    if bookmarked {
+                        try await client.bookmark(noteID)
+                    } else {
+                        try await client.unbookmark(noteID)
+                    }
+                } catch {
+                    let code = (error as? MisskeyAPIError)?.code
+                    if code != "ALREADY_FAVORITED" && code != "NOT_FAVORITED" {
+                        await recover(noteID, bookmarked: bookmarked, from: error, client: client)
+                    }
                 }
-            } catch {
-                let code = (error as? MisskeyAPIError)?.code
-                if code != "ALREADY_FAVORITED" && code != "NOT_FAVORITED" {
-                    await recover(noteID, bookmarked: bookmarked, from: error, client: client)
-                }
+                finish(noteID)
             }
-            finish(noteID)
         }
+        // Once the request is queued: what the change has wait for the server (`whenSaved`)
+        // waits for this one too, not just the ones before it.
+        set(bookmarked, for: noteID)
         return bookmarked
     }
 

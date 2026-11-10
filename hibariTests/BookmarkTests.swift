@@ -161,6 +161,27 @@ struct BookmarkControllerTests {
         #expect(controller.marks.notBookmarked == ["n1"])
     }
 
+    @Test func whatAChangeHasWaitsForTheChangeItselfToBeSaved() async throws {
+        let log = Log()
+        let controller = controller(log: log)
+        let note = try note()
+        let saved = Locked<[[String]]>([])
+        let observer = NotificationCenter.default.addObserver(forName: BookmarkController.didChange, object: controller,
+                                                              queue: nil) { _ in
+            MainActor.assumeIsolated {
+                controller.whenSaved("n1") { saved.withLock { $0.append(log.all) } }
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        controller.toggle(note)
+        controller.toggle(note)
+        for _ in 0..<200 where saved.withLock({ $0.count }) < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(saved.withLock { $0 } == [["notes/favorites/create n1"],
+                                          ["notes/favorites/create n1", "notes/favorites/delete n1"]])
+    }
+
     @Test func bookmarkedElsewhereAlreadyIsAsGoodAsDone() async throws {
         let log = Log()
         let controller = controller(log: log, errors: ["notes/favorites/create": "ALREADY_FAVORITED"])

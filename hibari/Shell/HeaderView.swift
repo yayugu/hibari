@@ -81,10 +81,10 @@ final class HeaderView: UIView {
             if pull != oldValue { setNeedsLayout() }
         }
     }
-    private static let logoSize: CGFloat = 26
+    private static let logoSize: CGFloat = 28
     /// How much the mark grows when pulled (by `pullForLogoScale` or more).
-    private static let pulledLogoScale: CGFloat = 0.25
-    private static let pullForLogoScale: CGFloat = 60
+    private static let pulledLogoScale: CGFloat = 0.44
+    private static let pullForLogoScale: CGFloat = 46
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -99,6 +99,7 @@ final class HeaderView: UIView {
         let grown = min(1, pull / Self.pullForLogoScale)
         let logoScale = 1 + Self.pulledLogoScale * grown * grown * (3 - 2 * grown)
         logo.transform = CGAffineTransform(scaleX: logoScale, y: logoScale)
+        logo.room = pull
         let side = 64 + max(insets.left, insets.right)
         titleLabel.frame = CGRect(x: side, y: 0, width: max(0, w - 2 * side), height: Self.topRowHeight)
         tabStrip.frame = CGRect(x: 0, y: shownTopRowHeight + pull, width: w, height: Self.tabsHeight)

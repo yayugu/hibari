@@ -1411,7 +1411,8 @@ extension TimelineViewController: UICollectionViewDataSource, UICollectionViewDe
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-        pullToRefresh?.scrollViewWillEndDragging(scrollView)
+        pullToRefresh?.scrollViewWillEndDragging(scrollView, velocity: velocity,
+                                                 targetContentOffset: targetContentOffset)
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {

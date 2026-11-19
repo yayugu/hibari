@@ -8,7 +8,7 @@ import UIKit
 struct PullToRefreshIndicatorTests {
     /// Nothing to wait for: the update waiting for it lands at once.
     @Test func stoppingWhatNeverStartedEndsAtOnce() {
-        let mark = RefreshMarkView(frame: CGRect(x: 0, y: 0, width: 26, height: 26))
+        let mark = RefreshMarkView(frame: CGRect(x: 0, y: 0, width: 28, height: 28))
         var done = false
         mark.stopLoading { done = true }
         #expect(done)
@@ -54,7 +54,7 @@ struct PullToRefreshIndicatorTests {
         scrollView.isHeld = false
         pull.scrollViewWillEndDragging(scrollView)
         #expect(indicator.pulls.last?.1 == false)
-        #expect(pull.inset == 0)
+        #expect(pull.inset > 0)
 
         var landed = false
         let wait = Task {
@@ -69,19 +69,49 @@ struct PullToRefreshIndicatorTests {
         pull.endRefreshing()
         #expect(indicator.stops == 1)
         #expect(!pull.isRefreshing)
+        #expect(pull.inset == 0)
     }
 
-    @Test func aFailedRefreshStopsTheIndicatorOnce() {
+    @Test func aTappedRefreshOpensTheHeaderRoomAndClosesItWhenDone() async {
+        let scrollView = UIScrollView(frame: CGRect(x: 0, y: 0, width: 402, height: 240))
+        let pull = PullToRefresh(scrollView: scrollView)
+        let indicator = Indicator()
+        pull.indicator = indicator
+        var refreshes = 0
+        pull.onRefresh = { refreshes += 1 }
+        pull.onInsetChange = {
+            scrollView.contentInset.top = pull.inset
+        }
+
+        pull.beginRefreshing()
+        #expect(refreshes == 1)
+        #expect(indicator.starts == 1)
+        #expect(pull.inset > 0)
+        #expect(scrollView.contentOffset.y == -pull.inset)
+
+        let wait = Task { await pull.waitForAnimation() }
+        while indicator.completions.isEmpty { await Task.yield() }
+        indicator.completions.forEach { $0() }
+        await wait.value
+        pull.endRefreshing()
+        #expect(indicator.stops == 1)
+        #expect(!pull.isRefreshing)
+        #expect(pull.inset == 0)
+        #expect(scrollView.contentOffset.y == 0)
+    }
+
+    @Test func aFailedRefreshStopsTheIndicatorOnceAndClosesTheRoom() {
         let scrollView = UIScrollView(frame: CGRect(x: 0, y: 0, width: 402, height: 240))
         let pull = PullToRefresh(scrollView: scrollView)
         let indicator = Indicator()
         pull.indicator = indicator
         pull.beginRefreshing()
         #expect(indicator.starts == 1)
-        #expect(pull.inset == 0)
+        #expect(pull.inset > 0)
         pull.endRefreshing()
         pull.endRefreshing()
         #expect(indicator.stops == 1)
+        #expect(pull.inset == 0)
     }
 
     @Test func withoutTheIndicatorOnScreenThePullShowsTheSpinner() {

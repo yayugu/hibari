@@ -167,15 +167,18 @@ final class TimelinePagerViewController: UIViewController {
         header.transform = transform
     }
 
-    /// The header stretches as the shown list is pulled past its top, when its mark shows the pull.
+    /// The header stretches as the shown list is pulled past its top (or held open while
+    /// refreshing), when its mark shows the pull.
     private func applyPull(of scrollView: UIScrollView?) {
         var pull: CGFloat = 0
         if header.showsPull, let scrollView {
-            pull = max(0, -(scrollView.contentOffset.y + scrollView.adjustedContentInset.top))
+            let restingTop = view.safeAreaInsets.top + header.height
+            pull = max(0, -(scrollView.contentOffset.y + restingTop))
         }
         guard pull != header.pull else { return }
         header.pull = pull
         layoutHeader()
+        header.layoutIfNeeded()
     }
 
     private func applyBars(_ progress: CGFloat) {
@@ -210,7 +213,9 @@ final class TimelinePagerViewController: UIViewController {
             bars.reset(for: scrollView)
         }
         bars.show(animated: true)
-        applyPull(of: currentTimeline?.collectionView)
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.applyPull(of: self.currentTimeline?.collectionView)
+        }
     }
 
     private func updateScrollsToTop() {

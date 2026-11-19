@@ -94,15 +94,18 @@ final class PullToRefresh {
         onRefresh?()
     }
 
-    func scrollViewWillEndDragging(_ scrollView: UIScrollView) {
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, velocity: CGPoint = .zero,
+                                   targetContentOffset: UnsafeMutablePointer<CGPoint>? = nil) {
+        let distance = pulled(scrollView)
         if let shown = shownIndicator {
-            // It shows the refresh from here, without room in the list: the list goes back up.
-            shown.setPull(max(0, pulled(scrollView)) / Self.triggerDistance, holding: false)
-            return
+            shown.setPull(max(0, distance) / Self.triggerDistance, holding: false)
         }
-        guard isRefreshing, inset == 0, pulled(scrollView) > 0 else { return }
+        guard isRefreshing, inset == 0, distance > 0 else { return }
         inset = Self.room
         onInsetChange?()
+        if distance < Self.room, velocity.y <= 0.1 {
+            targetContentOffset?.pointee.y = -scrollView.adjustedContentInset.top
+        }
     }
 
     private func show(on indicator: PullToRefreshIndicator) {
@@ -111,8 +114,8 @@ final class PullToRefresh {
         indicator.startLoading()
     }
 
-    /// Starts refreshing as if pulled, without a drag: the content moves down to show the
-    /// spinner, or the indicator shows it.
+    /// Starts refreshing as if pulled, without a drag: the content moves down to make room
+    /// for the indicator (expanding the header) or the spinner.
     func beginRefreshing() {
         guard !isRefreshing, let scrollView else { return }
         isRefreshing = true
@@ -120,6 +123,14 @@ final class PullToRefresh {
         startedAt = Date()
         if let indicator, indicator.isShowingIndicator {
             show(on: indicator)
+            UIView.animate(
+                withDuration: 0.26, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction]
+            ) {
+                self.inset = Self.room
+                self.onInsetChange?()
+                scrollView.contentOffset.y = -scrollView.adjustedContentInset.top
+            }
             onRefresh?()
             return
         }
@@ -152,12 +163,16 @@ final class PullToRefresh {
 
     /// `foundNew`: the refresh brought something new, which shows right away; otherwise
     /// the spinner stays for `minimumDuration`. Either way it stays until `holdsUntil`.
-    /// The indicator ends what it shows on its own.
+    /// When the indicator shows the refresh, `waitForAnimation()` already held for its hops,
+    /// so the held header room closes smoothly here.
     func endRefreshing(foundNew: Bool = true) {
         if isRefreshing, let shownOn {
-            if !stoppedShowing { shownOn.stopLoading(then: nil) }
             self.shownOn = nil
-            isRefreshing = false
+            if !stoppedShowing {
+                stoppedShowing = true
+                shownOn.stopLoading(then: nil)
+            }
+            finish()
             return
         }
         guard isRefreshing, pendingEnd == nil else { return }

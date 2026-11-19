@@ -52,6 +52,10 @@ final class TimelineViewController: UIViewController {
     /// Off when the screen around the timeline shows the pull itself (the profile's
     /// banner); it calls `refresh(completion:)` then. Set before the view loads.
     var allowsPullToRefresh = true
+    /// Shows the pull to refresh instead of the spinner while on screen (the header's mark).
+    weak var refreshIndicator: PullToRefreshIndicator? {
+        didSet { pullToRefresh?.indicator = refreshIndicator }
+    }
     var emptyMessage = "まだノートがありません"
     /// Loads nothing until `activate()` (the pager's timelines, until they show). Set
     /// before the view loads.
@@ -201,6 +205,7 @@ final class TimelineViewController: UIViewController {
             let pull = PullToRefresh(scrollView: collectionView)
             pull.onRefresh = { [weak self] in self?.refresh() }
             pull.onInsetChange = { [weak self] in self?.applyInsets() }
+            pull.indicator = refreshIndicator
             pullToRefresh = pull
         }
         listHold.onRelease = { [weak self] in self?.presentEntries() }
@@ -738,7 +743,7 @@ final class TimelineViewController: UIViewController {
                     update = RefreshUpdate(items: items, layouts: await prepare(items),
                                            changed: [], replacing: true, gapBelow: nil)
                 }
-                await self.waitForSpinner()
+                await self.waitForRefreshAnimation()
                 await self.finishRefresh(update, newest: entries.first?.id, cursor: page.cursor,
                                          isEnd: page.cursor == nil)
             } catch {
@@ -1164,16 +1169,16 @@ final class TimelineViewController: UIViewController {
         collectionView.contentOffset.y <= -collectionView.adjustedContentInset.top + 1
     }
 
-    /// Refreshes with the pull-to-refresh spinner showing, as if pulled.
-    func refreshShowingSpinner() {
+    /// Refreshes with the pull to refresh showing (the spinner, or the header's mark), as if pulled.
+    func refreshAsIfPulled() {
         guard let pullToRefresh else { return refresh() }
         pullToRefresh.beginRefreshing()
     }
 
-    /// Waits while the spinner of a tapped refresh is held, so its update lands as it goes away.
-    private func waitForSpinner() async {
-        guard let wait = pullToRefresh?.holdsUntil.timeIntervalSinceNow, wait > 0 else { return }
-        try? await Task.sleep(for: .seconds(wait))
+    /// Waits for what shows the refresh (the mark's hops, or the spinner of a tapped
+    /// refresh, held) to come to its end, so its update lands as it does.
+    private func waitForRefreshAnimation() async {
+        await pullToRefresh?.waitForAnimation()
     }
 
     func scrollToTop(animated: Bool) {

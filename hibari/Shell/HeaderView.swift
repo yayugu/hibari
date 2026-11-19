@@ -22,7 +22,7 @@ final class HeaderView: UIView {
 
     private let hasTitle: Bool
     private let avatar = AvatarView()
-    private let logo = UIImageView()
+    private let logo = RefreshMarkView()
     private let titleLabel = UILabel()
     private let hairline = UIView()
     private static let avatarSize: CGFloat = 32
@@ -49,9 +49,6 @@ final class HeaderView: UIView {
             titleLabel.accessibilityTraits = .header
             contentView.addSubview(titleLabel)
         } else {
-            logo.image = UIImage(named: "BirdMark")?.withRenderingMode(.alwaysTemplate)
-            logo.tintColor = .hibari(.primaryText)
-            logo.contentMode = .scaleAspectFit
             logo.isAccessibilityElement = true
             logo.accessibilityLabel = "Hibari"
             contentView.addSubview(logo)
@@ -67,8 +64,27 @@ final class HeaderView: UIView {
 
     private var shownTopRowHeight: CGFloat { usesRail && !hasTitle ? 0 : Self.topRowHeight }
 
-    /// The rows, without the status bar.
+    /// The rows, without the status bar (nor `pull`).
     var height: CGFloat { shownTopRowHeight + Self.tabsHeight }
+
+    /// Shows the list's pull to refresh while the mark is on screen.
+    var refreshIndicator: PullToRefreshIndicator? { hasTitle ? nil : logo }
+
+    /// The mark is on screen, to show the pull (`pull`).
+    var showsPull: Bool { !hasTitle && !usesRail }
+
+    /// How far the list is pulled past its top, when the mark shows it: the row with the
+    /// mark stretches as far (the tabs going down with the list), the mark in its middle
+    /// and growing. The owner makes the header as much taller.
+    var pull: CGFloat = 0 {
+        didSet {
+            if pull != oldValue { setNeedsLayout() }
+        }
+    }
+    private static let logoSize: CGFloat = 26
+    /// How much the mark grows when pulled (by `pullForLogoScale` or more).
+    private static let pulledLogoScale: CGFloat = 0.25
+    private static let pullForLogoScale: CGFloat = 60
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -77,10 +93,15 @@ final class HeaderView: UIView {
         let insets = topBarInsets
         accountButton.frame = CGRect(x: insets.left + 10, y: 0, width: 44, height: Self.topRowHeight)
         avatar.frame = CGRect(x: 6, y: (Self.topRowHeight - Self.avatarSize) / 2, width: Self.avatarSize, height: Self.avatarSize)
-        logo.frame = CGRect(x: (w - 28) / 2, y: (Self.topRowHeight - 28) / 2, width: 28, height: 28)
+        let pull = showsPull ? max(0, self.pull) : 0
+        logo.bounds = CGRect(x: 0, y: 0, width: Self.logoSize, height: Self.logoSize)
+        logo.center = CGPoint(x: w / 2, y: (Self.topRowHeight + pull) / 2)
+        let grown = min(1, pull / Self.pullForLogoScale)
+        let logoScale = 1 + Self.pulledLogoScale * grown * grown * (3 - 2 * grown)
+        logo.transform = CGAffineTransform(scaleX: logoScale, y: logoScale)
         let side = 64 + max(insets.left, insets.right)
         titleLabel.frame = CGRect(x: side, y: 0, width: max(0, w - 2 * side), height: Self.topRowHeight)
-        tabStrip.frame = CGRect(x: 0, y: shownTopRowHeight, width: w, height: Self.tabsHeight)
+        tabStrip.frame = CGRect(x: 0, y: shownTopRowHeight + pull, width: w, height: Self.tabsHeight)
         let scale = window?.screen.scale ?? traitCollection.displayScale
         hairline.frame = CGRect(x: 0, y: bounds.height - 1 / scale, width: w, height: 1 / scale)
     }

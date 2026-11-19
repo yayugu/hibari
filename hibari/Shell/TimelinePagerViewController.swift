@@ -94,6 +94,7 @@ final class TimelinePagerViewController: UIViewController {
             controller.snapshotStore = TimelineSnapshotStore(accountID: session.account.id, timelineID: timeline.id)
         }
         controller.scrollObserver = self
+        controller.refreshIndicator = header.refreshIndicator
         controller.onAuthenticationFailure = { [weak self] in self?.onAuthenticationFailure?() }
         addChild(controller)
         pager.addSubview(controller.view)
@@ -152,10 +153,29 @@ final class TimelinePagerViewController: UIViewController {
         }
 
         statusBarBackdrop.frame = CGRect(x: 0, y: 0, width: bounds.width, height: safe.top)
-        header.transform = .identity
-        header.frame = CGRect(x: 0, y: safe.top, width: bounds.width, height: header.height)
+        layoutHeader()
         bars.distance = header.height
         applyBars(bars.progress)
+    }
+
+    /// Under the status bar, taller by how far the list is pulled (`HeaderView.pull`).
+    private func layoutHeader() {
+        let transform = header.transform
+        header.transform = .identity
+        header.frame = CGRect(x: 0, y: view.safeAreaInsets.top, width: view.bounds.width,
+                              height: header.height + header.pull)
+        header.transform = transform
+    }
+
+    /// The header stretches as the shown list is pulled past its top, when its mark shows the pull.
+    private func applyPull(of scrollView: UIScrollView?) {
+        var pull: CGFloat = 0
+        if header.showsPull, let scrollView {
+            pull = max(0, -(scrollView.contentOffset.y + scrollView.adjustedContentInset.top))
+        }
+        guard pull != header.pull else { return }
+        header.pull = pull
+        layoutHeader()
     }
 
     private func applyBars(_ progress: CGFloat) {
@@ -190,6 +210,7 @@ final class TimelinePagerViewController: UIViewController {
             bars.reset(for: scrollView)
         }
         bars.show(animated: true)
+        applyPull(of: currentTimeline?.collectionView)
     }
 
     private func updateScrollsToTop() {
@@ -203,10 +224,10 @@ final class TimelinePagerViewController: UIViewController {
         bars.show(animated: true)
     }
 
-    /// At the top, refreshes the current timeline with the spinner showing; otherwise scrolls to the top.
+    /// At the top, refreshes the current timeline as if pulled; otherwise scrolls to the top.
     func refreshOrScrollToTop() {
         guard let timeline = currentTimeline, timeline.isLoaded, timeline.isAtTop else { return scrollToTop() }
-        timeline.refreshShowingSpinner()
+        timeline.refreshAsIfPulled()
         bars.show(animated: true)
     }
 
@@ -234,6 +255,7 @@ final class TimelinePagerViewController: UIViewController {
     func setUsesRail(_ usesRail: Bool) {
         guard usesRail != header.usesRail else { return }
         header.usesRail = usesRail
+        applyPull(of: currentTimeline?.collectionView)
         viewIfLoaded?.setNeedsLayout()
     }
 
@@ -279,6 +301,7 @@ extension TimelinePagerViewController: TimelineScrollObserver {
     func timelineDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === currentTimeline?.collectionView else { return }
         bars.scrollViewDidScroll(scrollView)
+        applyPull(of: scrollView)
     }
 
     func timelineDidEndScrolling(_ scrollView: UIScrollView) {
@@ -289,5 +312,6 @@ extension TimelinePagerViewController: TimelineScrollObserver {
     func timelineDidMoveContent(_ scrollView: UIScrollView) {
         guard scrollView === currentTimeline?.collectionView else { return }
         bars.reset(for: scrollView)
+        applyPull(of: scrollView)
     }
 }

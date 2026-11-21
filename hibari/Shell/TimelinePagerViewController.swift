@@ -167,8 +167,8 @@ final class TimelinePagerViewController: UIViewController {
         header.transform = transform
     }
 
-    /// The header stretches as the shown list is pulled past its top (or held open while
-    /// refreshing), when its mark shows the pull.
+    /// The header stretches as the shown list is pulled past its top (or dips briefly on a
+    /// home tap), when its mark shows the pull.
     private func applyPull(of scrollView: UIScrollView?) {
         var pull: CGFloat = 0
         if header.showsPull, let scrollView {

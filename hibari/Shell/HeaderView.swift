@@ -83,8 +83,8 @@ final class HeaderView: UIView {
     }
     private static let logoSize: CGFloat = 28
     /// How much the mark grows when pulled (by `pullForLogoScale` or more).
-    private static let pulledLogoScale: CGFloat = 0.44
-    private static let pullForLogoScale: CGFloat = 46
+    private static let pulledLogoScale: CGFloat = 0.32
+    private static let pullForLogoScale: CGFloat = 48
 
     override func layoutSubviews() {
         super.layoutSubviews()

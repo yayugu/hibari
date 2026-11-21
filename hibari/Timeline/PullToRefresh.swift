@@ -17,6 +17,11 @@ final class PullToRefresh {
     static let triggerDistance: CGFloat = 30
     static let minimumDuration: TimeInterval = 0.6
     private static let room: CGFloat = 40
+    /// How far a home-tab tap dips the header and list as a brief cue before returning.
+    private static let tapDipDistance: CGFloat = 34
+    private static let tapDipDuration: TimeInterval = 0.19
+    private static let tapReturnDelay: TimeInterval = 0.05
+    private static let tapReturnDuration: TimeInterval = 0.30
 
     var onRefresh: (() -> Void)?
     /// `inset` changed: the owner puts it into the content inset (inside an animation
@@ -43,6 +48,8 @@ final class PullToRefresh {
     private var shownOn: PullToRefreshIndicator?
     /// `shownOn` was told the refresh stopped.
     private var stoppedShowing = false
+    /// Invalidates a pending tap-dip return if the user grabs the list or starts another dip.
+    private var dipGeneration = 0
 
     init(scrollView: UIScrollView, color: UIColor = .hibari(.secondaryText)) {
         self.scrollView = scrollView
@@ -66,6 +73,7 @@ final class PullToRefresh {
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        dipGeneration += 1
         armed = !isRefreshing
     }
 
@@ -94,18 +102,16 @@ final class PullToRefresh {
         onRefresh?()
     }
 
-    func scrollViewWillEndDragging(_ scrollView: UIScrollView, velocity: CGPoint = .zero,
-                                   targetContentOffset: UnsafeMutablePointer<CGPoint>? = nil) {
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView) {
         let distance = pulled(scrollView)
         if let shown = shownIndicator {
+            // The indicator shows the refresh without holding the list down: it springs right back.
             shown.setPull(max(0, distance) / Self.triggerDistance, holding: false)
+            return
         }
         guard isRefreshing, inset == 0, distance > 0 else { return }
         inset = Self.room
         onInsetChange?()
-        if distance < Self.room, velocity.y <= 0.1 {
-            targetContentOffset?.pointee.y = -scrollView.adjustedContentInset.top
-        }
     }
 
     private func show(on indicator: PullToRefreshIndicator) {
@@ -114,8 +120,9 @@ final class PullToRefresh {
         indicator.startLoading()
     }
 
-    /// Starts refreshing as if pulled, without a drag: the content moves down to make room
-    /// for the indicator (expanding the header) or the spinner.
+    /// Starts refreshing as if pulled, without a drag: with the indicator, briefly dips the
+    /// header and list down as a tactile cue and returns immediately; otherwise opens room
+    /// for the spinner.
     func beginRefreshing() {
         guard !isRefreshing, let scrollView else { return }
         isRefreshing = true
@@ -123,14 +130,7 @@ final class PullToRefresh {
         startedAt = Date()
         if let indicator, indicator.isShowingIndicator {
             show(on: indicator)
-            UIView.animate(
-                withDuration: 0.26, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0,
-                options: [.beginFromCurrentState, .allowUserInteraction]
-            ) {
-                self.inset = Self.room
-                self.onInsetChange?()
-                scrollView.contentOffset.y = -scrollView.adjustedContentInset.top
-            }
+            dipBriefly(scrollView)
             onRefresh?()
             return
         }
@@ -143,6 +143,33 @@ final class PullToRefresh {
             scrollView.contentOffset.y = -scrollView.adjustedContentInset.top
         }
         onRefresh?()
+    }
+
+    /// Gives a tapped refresh the feel of a brief pull without keeping the list shifted down
+    /// while the request runs.
+    private func dipBriefly(_ scrollView: UIScrollView) {
+        dipGeneration += 1
+        let generation = dipGeneration
+        let restingTop = scrollView.adjustedContentInset.top - inset
+        UIView.animate(
+            withDuration: Self.tapDipDuration, delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            scrollView.contentOffset.y = -restingTop - Self.tapDipDistance
+        } completion: { [weak self, weak scrollView] _ in
+            guard let self, let scrollView, self.dipGeneration == generation,
+                  !scrollView.isDragging, !scrollView.isDecelerating
+            else { return }
+            let target = -(scrollView.adjustedContentInset.top - self.inset)
+            guard scrollView.contentOffset.y < target else { return }
+            UIView.animate(
+                withDuration: Self.tapReturnDuration, delay: Self.tapReturnDelay,
+                usingSpringWithDamping: 0.92, initialSpringVelocity: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction]
+            ) {
+                scrollView.contentOffset.y = target
+            }
+        }
     }
 
     /// Waits for what shows the refresh to come to its end, so the update lands as it does:
@@ -163,8 +190,7 @@ final class PullToRefresh {
 
     /// `foundNew`: the refresh brought something new, which shows right away; otherwise
     /// the spinner stays for `minimumDuration`. Either way it stays until `holdsUntil`.
-    /// When the indicator shows the refresh, `waitForAnimation()` already held for its hops,
-    /// so the held header room closes smoothly here.
+    /// The indicator ends what it shows on its own.
     func endRefreshing(foundNew: Bool = true) {
         if isRefreshing, let shownOn {
             self.shownOn = nil
@@ -172,7 +198,7 @@ final class PullToRefresh {
                 stoppedShowing = true
                 shownOn.stopLoading(then: nil)
             }
-            finish()
+            isRefreshing = false
             return
         }
         guard isRefreshing, pendingEnd == nil else { return }

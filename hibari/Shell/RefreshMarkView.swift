@@ -1,28 +1,29 @@
 import UIKit
 
-/// Where the bird is: crouched by a pull, dipping into a tapped refresh, soaring on takeoff,
-/// hopping while the refresh goes on, or settling back to rest.
+/// Where the bird is: crouched by a pull, dipping into a tapped refresh, launching off the
+/// header's spring return, hopping calmly while waiting, or settling back to rest.
 private enum MarkMoment: Equatable {
     /// Pulled by the user (`progress`: 0...1+, `armedElapsed`: seconds since trigger while held).
     case pulled(progress: CGFloat, armedElapsed: TimeInterval?)
-    /// Dipping down into an anticipation crouch for a non-pull (tapped) refresh (`t` 0..<1).
+    /// Dipping down into a quick anticipation crouch for a tapped refresh (`t` 0..<1).
     case dipping(CGFloat)
-    /// Initial slingshot takeoff out of the pull or dip crouch (`t` 0..<1).
+    /// Initial trampoline takeoff riding the header's return (`t` 0..<1).
     case launching(CGFloat)
-    /// Subsequent buoyant hops while the refresh goes on (`t` 0..<1).
+    /// Calm monochrome hops in the resting header while waiting for the refresh (`t` 0..<1).
     case hopping(CGFloat)
-    /// Non-blocking untint & gentle settle after the final landing (`t` 0..<1).
+    /// Non-blocking micro-rebound & shadow fade after the final landing (`t` 0..<1).
     case settling(CGFloat)
 
     static let rest = MarkMoment.pulled(progress: 0, armedElapsed: nil)
 }
 
 /// The bird while a refresh goes on: from a pull it launches straight out of its crouch;
-/// tapped, it dips into a crouch with the header and then launches. It hops until the
-/// refresh finishes, completing at least the takeoff.
+/// tapped, it dips briefly with the header and then launches. It completes at least the
+/// takeoff, then hops gently until the refresh finishes.
 private struct RefreshMarkSequence {
-    static let dipDuration: TimeInterval = 0.24
-    static let hopDuration: TimeInterval = 0.76
+    static let dipDuration: TimeInterval = 0.19
+    static let launchDuration: TimeInterval = 0.68
+    static let hopDuration: TimeInterval = 0.70
 
     private enum Step: Equatable {
         case dip, launch, hop, done
@@ -46,7 +47,8 @@ private struct RefreshMarkSequence {
     private func duration(of step: Step) -> TimeInterval {
         switch step {
         case .dip: Self.dipDuration
-        case .launch, .hop: Self.hopDuration
+        case .launch: Self.launchDuration
+        case .hop: Self.hopDuration
         case .done: .infinity
         }
     }
@@ -75,179 +77,182 @@ private struct RefreshMarkSequence {
     }
 }
 
-/// How the bird, its shadow, and takeoff sparks are drawn for a moment.
+/// How the monochrome bird and its soft shadow are drawn for a moment.
 private struct MarkPose: Equatable {
     var lift: CGFloat = 0
     var scaleX: CGFloat = 1
     var scaleY: CGFloat = 1
     var rotation: CGFloat = 0
-    var accentMix: CGFloat = 0
+    var alpha: CGFloat = 1
     var shadowOpacity: CGFloat = 0
     var shadowScale: CGFloat = 1
 
     static let rest = MarkPose()
     /// Where the bird's feet are, as a fraction of the mark's height (BirdMark.svg).
     static let feet: CGFloat = 234 / 256
-    /// Maximum lift as a fraction of the mark's unscaled height (28pt), adapted to `room`.
-    static let shelfLaunchLift: CGFloat = 0.56
-    static let compactLaunchLift: CGFloat = 0.30
-    static let shelfHopLift: CGFloat = 0.44
-    static let compactHopLift: CGFloat = 0.25
+    static let detentDuration: TimeInterval = 0.20
+    /// Lift as a fraction of the unscaled 28pt mark: fits inside the 44pt bar at rest
+    /// without clipping into the status bar, with a bit extra while the header is stretched.
+    static let compactLaunchLift: CGFloat = 0.34
+    static let stretchedLaunchLift: CGFloat = 0.45
+    static let hopLift: CGFloat = 0.24
 
     init(lift: CGFloat = 0, scaleX: CGFloat = 1, scaleY: CGFloat = 1, rotation: CGFloat = 0,
-         accentMix: CGFloat = 0, shadowOpacity: CGFloat = 0, shadowScale: CGFloat = 1) {
+         alpha: CGFloat = 1, shadowOpacity: CGFloat = 0, shadowScale: CGFloat = 1) {
         self.lift = lift
         self.scaleX = scaleX
         self.scaleY = scaleY
         self.rotation = rotation
-        self.accentMix = accentMix
+        self.alpha = alpha
         self.shadowOpacity = shadowOpacity
         self.shadowScale = shadowScale
     }
 
-    /// `room`: extra header height above the normal bar (0...40+), used to keep jumps clear
-    /// of the status bar even if the list scrolls partway down during a refresh.
     init(_ moment: MarkMoment, room: CGFloat) {
         func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * max(0, min(1, t)) }
         func smooth(_ t: CGFloat) -> CGFloat { let u = max(0, min(1, t)); return u * u * (3 - 2 * u) }
         func easeOutCubic(_ t: CGFloat) -> CGFloat { let u = 1 - max(0, min(1, t)); return 1 - u * u * u }
         func deg(_ d: CGFloat) -> CGFloat { d * .pi / 180 }
 
-        let headroom = smooth(room / 28)
-        let launchLift = lerp(Self.compactLaunchLift, Self.shelfLaunchLift, headroom)
-        let hopLift = lerp(Self.compactHopLift, Self.shelfHopLift, headroom)
+        let headroom = smooth(room / 26)
+        let launchLift = lerp(Self.compactLaunchLift, Self.stretchedLaunchLift, headroom)
 
         switch moment {
         case .pulled(let progress, let armedElapsed):
             let q = smooth(min(1, progress))
             let over = min(1, max(0, progress - 1))
-            var angle = -9 * q
-            var accent: CGFloat = 0
+            var sx = 1 + 0.15 * q - 0.05 * over
+            var sy = 1 - 0.18 * q + 0.06 * over
+            var alpha: CGFloat = 1
             if let elapsed = armedElapsed {
-                accent = smooth(CGFloat(elapsed / 0.14))
-                angle += 3.5 * CGFloat(sin(elapsed * 45))
+                let u = CGFloat(max(0, min(1, elapsed / Self.detentDuration)))
+                let pop = sin(.pi * u)
+                alpha = 1 - 0.28 * pop
+                sx += 0.05 * pop
+                sy += 0.05 * pop
             }
             self.init(
-                lift: -0.10 * q,
-                scaleX: 1 + 0.18 * q - 0.08 * over,
-                scaleY: 1 - 0.22 * q + 0.10 * over,
-                rotation: deg(angle),
-                accentMix: accent,
-                shadowOpacity: 0.18 * q,
-                shadowScale: 1.15
+                lift: -0.07 * q,
+                scaleX: sx,
+                scaleY: sy,
+                rotation: deg(-7 * q),
+                alpha: alpha,
+                shadowOpacity: 0.14 * q,
+                shadowScale: 1.12
             )
 
         case .dipping(let t):
             let u = easeOutCubic(t)
             self.init(
-                lift: -0.08 * u,
-                scaleX: 1 + 0.22 * u,
-                scaleY: 1 - 0.26 * u,
-                rotation: deg(-8 * u),
-                accentMix: u,
-                shadowOpacity: 0.20 * u,
-                shadowScale: 1.2
+                lift: -0.065 * u,
+                scaleX: 1 + 0.18 * u,
+                scaleY: 1 - 0.21 * u,
+                rotation: deg(-7 * u),
+                alpha: lerp(1, 0.72, u),
+                shadowOpacity: 0.14 * u,
+                shadowScale: 1.15
             )
 
         case .launching(let t):
             if t < 0.42 {
                 let u = t / 0.42
                 let arc = 1 - (1 - u) * (1 - u)
-                let snap = min(1, u * 3)
+                let snap = min(1, u * 2.8)
                 self.init(
                     lift: launchLift * arc,
-                    scaleX: lerp(1.22, 0.78, snap) + 0.22 * u,
-                    scaleY: lerp(0.76, 1.32, snap) - 0.30 * u,
-                    rotation: deg(lerp(-12, 9, u)),
-                    accentMix: 1,
-                    shadowOpacity: 0.22 * (1 - 0.75 * arc),
-                    shadowScale: 1.15 - 0.60 * arc
+                    scaleX: lerp(1.16, 0.84, snap) + 0.16 * u,
+                    scaleY: lerp(0.82, 1.22, snap) - 0.22 * u,
+                    rotation: deg(lerp(-8, 7, u)),
+                    alpha: lerp(0.72, 1, min(1, u * 2)),
+                    shadowOpacity: 0.15 * (1 - 0.75 * arc),
+                    shadowScale: 1.10 - 0.50 * arc
                 )
             } else if t < 0.78 {
                 let u = (t - 0.42) / 0.36
                 let fall = 1 - u * u
                 self.init(
                     lift: launchLift * fall,
-                    scaleX: lerp(1, 0.90, u),
-                    scaleY: lerp(1, 1.15, u),
-                    rotation: deg(lerp(9, 13, u)),
-                    accentMix: 1,
-                    shadowOpacity: 0.22 * (1 - 0.75 * fall),
-                    shadowScale: 1.15 - 0.60 * fall
+                    scaleX: lerp(1, 0.93, u),
+                    scaleY: lerp(1, 1.10, u),
+                    rotation: deg(lerp(7, 9, u)),
+                    alpha: 1,
+                    shadowOpacity: 0.15 * (1 - 0.75 * fall),
+                    shadowScale: 1.10 - 0.50 * fall
                 )
             } else {
                 let u = (t - 0.78) / 0.22
                 let sq = sin(.pi * u)
                 self.init(
-                    lift: -0.05 * sq,
-                    scaleX: 1 + 0.22 * sq,
-                    scaleY: 1 - 0.24 * sq,
-                    rotation: deg(lerp(13, 0, smooth(u))),
-                    accentMix: 1,
-                    shadowOpacity: 0.22,
-                    shadowScale: 1 + 0.22 * sq
+                    lift: -0.036 * sq,
+                    scaleX: 1 + 0.15 * sq,
+                    scaleY: 1 - 0.16 * sq,
+                    rotation: deg(lerp(9, 0, smooth(u))),
+                    alpha: 1,
+                    shadowOpacity: 0.14,
+                    shadowScale: 1 + 0.14 * sq
                 )
             }
 
         case .hopping(let t):
-            if t < 0.14 {
-                let u = smooth(t / 0.14)
+            let breathAlpha = 1 - 0.30 * sin(.pi * t)
+            if t < 0.16 {
+                let u = smooth(t / 0.16)
                 self.init(
-                    lift: -0.07 * u,
-                    scaleX: lerp(1, 1.24, u),
-                    scaleY: lerp(1, 0.74, u),
-                    rotation: deg(-10 * u),
-                    accentMix: 1,
-                    shadowOpacity: 0.22,
-                    shadowScale: 1.2
+                    lift: -0.036 * u,
+                    scaleX: lerp(1, 1.12, u),
+                    scaleY: lerp(1, 0.86, u),
+                    rotation: deg(-5 * u),
+                    alpha: breathAlpha,
+                    shadowOpacity: 0.12,
+                    shadowScale: 1.10
                 )
             } else if t < 0.50 {
-                let u = (t - 0.14) / 0.36
+                let u = (t - 0.16) / 0.34
                 let arc = 1 - (1 - u) * (1 - u)
                 let snap = min(1, u * 2.5)
                 self.init(
-                    lift: hopLift * arc,
-                    scaleX: lerp(1.24, 0.80, snap) + 0.20 * u,
-                    scaleY: lerp(0.74, 1.30, snap) - 0.28 * u,
-                    rotation: deg(lerp(-12, 8, u)),
-                    accentMix: 1,
-                    shadowOpacity: 0.20 * (1 - 0.72 * arc),
-                    shadowScale: 1.1 - 0.55 * arc
+                    lift: Self.hopLift * arc,
+                    scaleX: lerp(1.12, 0.90, snap) + 0.10 * u,
+                    scaleY: lerp(0.86, 1.12, snap) - 0.12 * u,
+                    rotation: deg(lerp(-5, 5, u)),
+                    alpha: breathAlpha,
+                    shadowOpacity: 0.12 * (1 - 0.70 * arc),
+                    shadowScale: 1.05 - 0.45 * arc
                 )
             } else if t < 0.80 {
                 let u = (t - 0.50) / 0.30
                 let fall = 1 - u * u
                 self.init(
-                    lift: hopLift * fall,
-                    scaleX: lerp(1, 0.90, u),
-                    scaleY: lerp(1, 1.14, u),
-                    rotation: deg(lerp(8, 12, u)),
-                    accentMix: 1,
-                    shadowOpacity: 0.20 * (1 - 0.72 * fall),
-                    shadowScale: 1.1 - 0.55 * fall
+                    lift: Self.hopLift * fall,
+                    scaleX: lerp(1, 0.95, u),
+                    scaleY: lerp(1, 1.07, u),
+                    rotation: deg(lerp(5, 6, u)),
+                    alpha: breathAlpha,
+                    shadowOpacity: 0.12 * (1 - 0.70 * fall),
+                    shadowScale: 1.05 - 0.45 * fall
                 )
             } else {
                 let u = (t - 0.80) / 0.20
                 let sq = sin(.pi * u)
                 self.init(
-                    lift: -0.05 * sq,
-                    scaleX: 1 + 0.20 * sq,
-                    scaleY: 1 - 0.22 * sq,
-                    rotation: deg(lerp(12, 0, smooth(u))),
-                    accentMix: 1,
-                    shadowOpacity: 0.22,
-                    shadowScale: 1 + 0.20 * sq
+                    lift: -0.028 * sq,
+                    scaleX: 1 + 0.11 * sq,
+                    scaleY: 1 - 0.12 * sq,
+                    rotation: deg(lerp(6, 0, smooth(u))),
+                    alpha: breathAlpha,
+                    shadowOpacity: 0.12,
+                    shadowScale: 1 + 0.10 * sq
                 )
             }
 
         case .settling(let t):
             let u = easeOutCubic(t)
-            let sq = sin(.pi * u) * 0.08
+            let sq = sin(.pi * u) * 0.05
             self.init(
                 scaleX: 1 + sq,
                 scaleY: 1 - sq,
-                accentMix: 1 - u,
-                shadowOpacity: 0.16 * (1 - u),
+                alpha: 1,
+                shadowOpacity: 0.10 * (1 - u),
                 shadowScale: 1
             )
         }
@@ -255,51 +260,53 @@ private struct MarkPose: Equatable {
 }
 
 /// The app's mark in the header, which also shows the list's pull to refresh (instead of
-/// a spinner): pulled, the bird crouches and tints blue at the trigger; let go (or tapped
-/// from the home tab, as the header dips), it launches skyward with wind-gust sparks and
-/// hops joyfully above its shadow while the refresh goes on.
+/// a spinner): stays monochrome to blend calmly with the chrome. Pulled (or tapped from
+/// the home tab during its brief dip), the bird crouches and springs off the header's
+/// return with subtle monochrome wind arcs, then hops gently in place until done.
 final class RefreshMarkView: UIView {
     /// Extra header room above the normal bar (set by `HeaderView` from its `pull`).
     var room: CGFloat = 0
 
     private let shadow = UIImageView(image: RefreshMarkView.makeShadowImage())
-    private let bird = UIImageView(image: UIImage(named: "BirdMark")?.withRenderingMode(.alwaysTemplate))
-    private let sparks = CALayer()
-    private let sparkArcs: [CAShapeLayer]
-    private let sparkDots: [CALayer]
+    private let bird = CALayer()
+    private let gust = CALayer()
+    private let gustArcs: [CAShapeLayer]
 
+    private struct BirdKey: Equatable {
+        let size: CGSize
+        let scale: CGFloat
+        let style: UIUserInterfaceStyle
+    }
+
+    private var renderedBirdKey: BirdKey?
     private var moment = MarkMoment.rest
     private var pull: CGFloat = 0
     /// The finger still holds the pull: a refresh it started waits for it to let go.
     private var isHeld = false
-    /// When the pull armed while held, to animate the blue tint and eager shiver.
+    /// When the pull armed while held, for a brief monochrome detent pulse.
     private var armedAt: TimeInterval?
     /// The refreshes going on.
     private var loads = 0
     /// A refresh started while the finger held the pull: takeoff starts as it lets go.
     private var owesHop = false
     private var sequence: RefreshMarkSequence?
-    /// Non-blocking untint & settle played right as the header glides closed.
+    /// Non-blocking micro-rebound after the final landing.
     private var settleStart: TimeInterval?
-    /// When the takeoff wind-gust sparks fired.
-    private var sparkStart: TimeInterval?
+    /// When the subtle takeoff wind arcs fired.
+    private var gustStart: TimeInterval?
     private var whenDone: [() -> Void] = []
     private var link: CADisplayLink?
 
-    private static let settleDuration: TimeInterval = 0.28
-    private static let sparkDuration: TimeInterval = 0.46
+    private static let settleDuration: TimeInterval = 0.26
+    private static let gustDuration: TimeInterval = 0.38
+    private static let gustMaxOpacity: CGFloat = 0.36
 
     override init(frame: CGRect) {
         let leftArc = Self.makeGustArc(from: CGPoint(x: -13, y: 6), control: CGPoint(x: -19, y: 2),
                                        to: CGPoint(x: -21, y: -4))
         let rightArc = Self.makeGustArc(from: CGPoint(x: 13, y: 6), control: CGPoint(x: 19, y: 2),
                                         to: CGPoint(x: 21, y: -4))
-        sparkArcs = [leftArc, rightArc]
-        sparkDots = [
-            Self.makeSparkDot(at: CGPoint(x: -10, y: -14), radius: 1.9),
-            Self.makeSparkDot(at: CGPoint(x: 12, y: -12), radius: 1.6),
-            Self.makeSparkDot(at: CGPoint(x: 0, y: -17), radius: 1.4),
-        ]
+        gustArcs = [leftArc, rightArc]
         super.init(frame: frame)
         isUserInteractionEnabled = false
         clipsToBounds = false
@@ -308,21 +315,22 @@ final class RefreshMarkView: UIView {
         shadow.alpha = 0
         addSubview(shadow)
 
-        sparks.opacity = 0
-        sparkArcs.forEach { sparks.addSublayer($0) }
-        sparkDots.forEach { sparks.addSublayer($0) }
-        layer.addSublayer(sparks)
+        gust.opacity = 0
+        gustArcs.forEach { gust.addSublayer($0) }
+        layer.addSublayer(gust)
 
-        bird.tintColor = .hibari(.primaryText)
-        bird.contentMode = .scaleAspectFit
-        bird.layer.anchorPoint = CGPoint(x: 0.5, y: MarkPose.feet)
-        addSubview(bird)
+        bird.anchorPoint = CGPoint(x: 0.5, y: MarkPose.feet)
+        bird.contentsGravity = .resizeAspect
+        bird.minificationFilter = .trilinear
+        bird.magnificationFilter = .linear
+        bird.allowsEdgeAntialiasing = true
+        layer.addSublayer(bird)
 
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
-            self.applySparkColors()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { (self: Self, _) in
+            self.updateRasterizedLayers()
             self.render()
         }
-        applySparkColors()
+        updateRasterizedLayers()
     }
 
     @available(*, unavailable)
@@ -334,6 +342,11 @@ final class RefreshMarkView: UIView {
         whenDone.forEach { $0() }
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateRasterizedLayers()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         let feetY = bounds.minY + bounds.height * MarkPose.feet
@@ -343,12 +356,13 @@ final class RefreshMarkView: UIView {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        sparks.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        gust.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        bird.setAffineTransform(.identity)
+        bird.bounds = CGRect(origin: .zero, size: bounds.size)
+        bird.position = CGPoint(x: bounds.midX, y: feetY)
         CATransaction.commit()
 
-        bird.transform = .identity
-        bird.bounds = CGRect(origin: .zero, size: bounds.size)
-        bird.center = CGPoint(x: bounds.midX, y: feetY)
+        updateRasterizedLayers()
         render()
     }
 
@@ -372,8 +386,8 @@ final class RefreshMarkView: UIView {
         }
     }
 
-    /// A refresh started: pulled, the bird tints blue and shivers until the finger lets go,
-    /// then launches; tapped, it dips into a crouch with the header and then launches.
+    /// A refresh started: pulled, plays a subtle detent pulse until the finger lets go,
+    /// then launches; tapped, dips briefly with the header and then launches.
     func startLoading() {
         loads += 1
         sequence?.isLoading = true
@@ -407,7 +421,7 @@ final class RefreshMarkView: UIView {
         var sequence = RefreshMarkSequence(fromPull: fromPull, at: now)
         sequence.isLoading = loads > 0
         self.sequence = sequence
-        if fromPull { sparkStart = now }
+        if fromPull { gustStart = now }
         updateDisplayLink()
         tick()
     }
@@ -418,7 +432,7 @@ final class RefreshMarkView: UIView {
             let wasLaunched = sequence.didStartLaunch
             let moment = sequence.moment(at: now)
             if !wasLaunched, sequence.didStartLaunch {
-                sparkStart = now
+                gustStart = now
             }
             self.sequence = sequence
             if !sequence.isDone {
@@ -437,7 +451,12 @@ final class RefreshMarkView: UIView {
         }
 
         if let armedAt, isHeld {
-            show(.pulled(progress: pull, armedElapsed: max(0, now - armedAt)))
+            let elapsed = max(0, now - armedAt)
+            show(.pulled(progress: pull, armedElapsed: elapsed))
+            if elapsed >= MarkPose.detentDuration {
+                self.armedAt = nil
+                updateDisplayLink()
+            }
             return
         }
 
@@ -448,7 +467,7 @@ final class RefreshMarkView: UIView {
                 return
             }
             self.settleStart = nil
-            sparkStart = nil
+            gustStart = nil
             show(.pulled(progress: pull, armedElapsed: nil))
             updateDisplayLink()
             return
@@ -458,7 +477,7 @@ final class RefreshMarkView: UIView {
     }
 
     private var needsDisplayLink: Bool {
-        sequence != nil || settleStart != nil || (armedAt != nil && isHeld) || sparkStart != nil
+        sequence != nil || settleStart != nil || (armedAt != nil && isHeld) || gustStart != nil
     }
 
     private func updateDisplayLink() {
@@ -474,8 +493,8 @@ final class RefreshMarkView: UIView {
     }
 
     private func show(_ moment: MarkMoment) {
-        let sparksActive = sparkStart != nil
-        guard moment != self.moment || sparksActive else { return }
+        let gustActive = gustStart != nil
+        guard moment != self.moment || gustActive else { return }
         self.moment = moment
         render()
     }
@@ -487,81 +506,94 @@ final class RefreshMarkView: UIView {
         case .dipping(let t), .launching(let t), .hopping(let t): t
         case .pulled, .settling: nil
         }
-        let accentMix: CGFloat = if reduced {
-            switch moment {
-            case .pulled(_, let armed): armed != nil ? 1 : 0
-            case .dipping(let t): t
-            case .launching, .hopping: 1
-            case .settling(let t): 1 - t
-            }
-        } else {
-            pose.accentMix
-        }
-        let fade = reduced ? 0.55 * sin(.pi * (activeCycle ?? 0)) : 0
+        let alpha = reduced ? (1 - 0.50 * sin(.pi * (activeCycle ?? 0))) : pose.alpha
         let primary = UIColor.hibari(.primaryText).resolvedColor(with: traitCollection)
-        let accent = UIColor.hibari(.accent).resolvedColor(with: traitCollection)
-        let tint = Self.blend(primary, accent, accentMix)
 
         UIView.performWithoutAnimation {
-            bird.transform = CGAffineTransform(translationX: 0, y: -pose.lift * bounds.height)
-                .rotated(by: pose.rotation)
-                .scaledBy(x: pose.scaleX, y: pose.scaleY)
-            bird.tintColor = tint
-            bird.alpha = 1 - fade
-
             shadow.tintColor = primary
             shadow.alpha = reduced ? 0 : pose.shadowOpacity
             shadow.transform = CGAffineTransform(scaleX: pose.shadowScale, y: 1)
         }
 
-        renderSparks(reduced: reduced)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        bird.setAffineTransform(
+            CGAffineTransform(translationX: 0, y: -pose.lift * bounds.height)
+                .rotated(by: pose.rotation)
+                .scaledBy(x: pose.scaleX, y: pose.scaleY)
+        )
+        bird.opacity = Float(alpha)
+        CATransaction.commit()
+
+        renderGust(reduced: reduced)
     }
 
-    private func renderSparks(reduced: Bool) {
+    private func renderGust(reduced: Bool) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        guard !reduced, let start = sparkStart else {
-            sparks.opacity = 0
+        guard !reduced, let start = gustStart else {
+            gust.opacity = 0
             return
         }
-        let raw = (CACurrentMediaTime() - start) / Self.sparkDuration
+        let raw = (CACurrentMediaTime() - start) / Self.gustDuration
         guard raw >= 0, raw <= 1 else {
-            sparkStart = nil
-            sparks.opacity = 0
+            gustStart = nil
+            gust.opacity = 0
             return
         }
         let t = CGFloat(raw)
         let u = 1 - pow(1 - t, 3)
-        let opacity = u < 0.25 ? u / 0.25 : 1 - (u - 0.25) / 0.75
-        let spread = 0.75 + 0.55 * u
+        let envelope = u < 0.25 ? u / 0.25 : 1 - (u - 0.25) / 0.75
+        let spread = 0.78 + 0.48 * u
         let liftY = -6 * u
-        sparks.opacity = Float(max(0, min(1, opacity)))
-        sparks.transform = CATransform3DConcat(
+        gust.opacity = Float(max(0, min(1, envelope * Self.gustMaxOpacity)))
+        gust.transform = CATransform3DConcat(
             CATransform3DMakeScale(spread, spread, 1),
             CATransform3DMakeTranslation(0, liftY, 0)
         )
     }
 
-    private func applySparkColors() {
-        let color = UIColor.hibari(.accent).resolvedColor(with: traitCollection).cgColor
+    /// Rasterizes the bird and gust arcs at 2× screen scale so scaling up and rotating during
+    /// a pull or takeoff stays sharp instead of upscaling a 1×-sized bitmap.
+    private var rasterScale: CGFloat {
+        let screen = window?.screen.scale ?? traitCollection.displayScale
+        return max(1, screen) * 2
+    }
+
+    private func updateRasterizedLayers() {
+        let scale = rasterScale
+        let primary = UIColor.hibari(.primaryText).resolvedColor(with: traitCollection)
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for arc in sparkArcs { arc.strokeColor = color }
-        for dot in sparkDots { dot.backgroundColor = color }
+        for arc in gustArcs {
+            arc.strokeColor = primary.cgColor
+            arc.contentsScale = scale
+            arc.allowsEdgeAntialiasing = true
+        }
+        if bounds.width > 0, bounds.height > 0 {
+            let key = BirdKey(size: bounds.size, scale: scale, style: traitCollection.userInterfaceStyle)
+            if key != renderedBirdKey {
+                renderedBirdKey = key
+                bird.contents = Self.makeBirdImage(size: bounds.size, color: primary, scale: scale)
+                bird.contentsScale = scale
+            }
+        }
         CATransaction.commit()
     }
 
-    private static func blend(_ a: UIColor, _ b: UIColor, _ t: CGFloat) -> UIColor {
-        let k = max(0, min(1, t))
-        guard k > 0.001 else { return a }
-        guard k < 0.999 else { return b }
-        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
-        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
-        a.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
-        b.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
-        return UIColor(red: r1 + (r2 - r1) * k, green: g1 + (g2 - g1) * k,
-                       blue: b1 + (b2 - b1) * k, alpha: a1 + (a2 - a1) * k)
+    private static func makeBirdImage(size: CGSize, color: UIColor, scale: CGFloat) -> CGImage? {
+        guard let source = UIImage(named: "BirdMark")?
+            .withTintColor(color, renderingMode: .alwaysOriginal)
+        else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            ctx.cgContext.interpolationQuality = .high
+            source.draw(in: CGRect(origin: .zero, size: size))
+        }.cgImage
     }
 
     private static func makeGustArc(from: CGPoint, control: CGPoint, to: CGPoint) -> CAShapeLayer {
@@ -571,17 +603,9 @@ final class RefreshMarkView: UIView {
         let layer = CAShapeLayer()
         layer.path = path.cgPath
         layer.fillColor = nil
-        layer.lineWidth = 1.8
+        layer.lineWidth = 1.7
         layer.lineCap = .round
         return layer
-    }
-
-    private static func makeSparkDot(at center: CGPoint, radius: CGFloat) -> CALayer {
-        let dot = CALayer()
-        dot.bounds = CGRect(x: 0, y: 0, width: radius * 2, height: radius * 2)
-        dot.cornerRadius = radius
-        dot.position = center
-        return dot
     }
 
     /// A soft oval rendered once as a template image so the bird's ground shadow needs no
